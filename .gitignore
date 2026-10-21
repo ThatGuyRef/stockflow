@@ -1,0 +1,23 @@
+# OS
+.DS_Store
+
+# Env
+.env
+.env.*
+!.env.example
+
+# Frontend
+node_modules/
+dist/
+coverage/
+*.local
+
+# Backend (Go)
+backend/api
+backend/bin/
+*.test
+*.out
+
+# Editor
+.vscode/
+.idea/
