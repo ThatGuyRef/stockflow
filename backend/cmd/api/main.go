@@ -7,16 +7,18 @@ import (
 	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"stockflow/internal/api"
 )
 
 func main() {
-	// 1. Baca DATABASE_URL dengan fallback
+	// 1. Read DATABASE_URL with a local fallback
 	dbURL := os.Getenv("DATABASE_URL")
 	if dbURL == "" {
 		dbURL = "postgres://user:user@localhost:5433/stockflow"
 	}
 
-	// 2. Buat connection pool
+	// 2. Create the connection pool
 	ctx := context.Background()
 	pool, err := pgxpool.New(ctx, dbURL)
 	if err != nil {
@@ -24,19 +26,22 @@ func main() {
 	}
 	defer pool.Close()
 
-	// 3. Ping database untuk memastikan koneksi aktif
+	// 3. Ping the database to fail fast if it's unreachable
 	if err := pool.Ping(ctx); err != nil {
 		log.Fatalf("Failed to ping database: %v", err)
 	}
 
-	// 4. Inisialisasi ServeMux dan daftarkan route health check
+	// 4. Initialize ServeMux and register routes
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(`{"status":"ok"}`))
 	})
 
-	// 5. Jalankan server HTTP pada port :8080
+	productHandler := &api.Handler{Pool: pool}
+	mux.HandleFunc("GET /api/products", productHandler.ListProducts)
+
+	// 5. Run the HTTP server on port :8080
 	log.Println("Server is listening on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", mux))
 }
