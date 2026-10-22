@@ -91,12 +91,11 @@ describe('validateOrderForm', () => {
 });
 
 describe('mapOrderError', () => {
-  const rows: OrderItemRow[] = [
-    { key: 'row-1', sku: 'ATK-001', qty: '1' },
-    { key: 'row-2', sku: 'ATK-016', qty: '99' },
-  ];
-
-  it('maps 409 INSUFFICIENT_STOCK to the exact failing row', () => {
+  it('maps 409 INSUFFICIENT_STOCK to the exact failing row case-insensitively', () => {
+    const mixedCaseRows: OrderItemRow[] = [
+      { key: 'row-1', sku: 'atk-001', qty: '1' },
+      { key: 'row-2', sku: '  atk-016  ', qty: '99' },
+    ];
     const apiErr = new ApiError(409, {
       code: 'INSUFFICIENT_STOCK',
       message: 'insufficient stock',
@@ -104,14 +103,14 @@ describe('mapOrderError', () => {
       available: 3,
     });
 
-    const mapped = mapOrderError(apiErr, rows);
+    const mapped = mapOrderError(apiErr, mixedCaseRows);
     expect(mapped.rowErrors['row-2']?.server).toBe('Stok tidak mencukupi (tersedia 3)');
     expect(mapped.generalError).toContain("Stok untuk 'ATK-016' tidak mencukupi (tersedia 3)");
   });
 
-  it('maps 400 unknown SKU to the failing row', () => {
+  it('maps 400 unknown SKU to the failing row case-insensitively', () => {
     const rowsWithUnknown: OrderItemRow[] = [
-      { key: 'row-1', sku: 'ATK-999', qty: '1' },
+      { key: 'row-1', sku: 'atk-999', qty: '1' },
     ];
     const apiErr = new ApiError(400, {
       code: 'VALIDATION_ERROR',
@@ -135,5 +134,35 @@ describe('mapOrderError', () => {
 
     const mapped = mapOrderError(apiErr, rowsWithInactive);
     expect(mapped.rowErrors['row-1']?.server).toBe("Produk 'ATK-007' berstatus nonaktif");
+  });
+
+  it('maps 400 items[N] index-based error to corresponding row', () => {
+    const testRows: OrderItemRow[] = [
+      { key: 'row-0', sku: 'ATK-001', qty: '1' },
+      { key: 'row-1', sku: 'ATK-002', qty: '0' },
+    ];
+    const apiErr = new ApiError(400, {
+      code: 'VALIDATION_ERROR',
+      message: 'validation failed',
+      details: ['items[1].qty must be greater than 0'],
+    });
+
+    const mapped = mapOrderError(apiErr, testRows);
+    expect(mapped.rowErrors['row-1']?.server).toBe('items[1].qty must be greater than 0');
+  });
+
+  it('falls back to generalError when details cannot be mapped to any row', () => {
+    const testRows: OrderItemRow[] = [
+      { key: 'row-0', sku: 'ATK-001', qty: '1' },
+    ];
+    const apiErr = new ApiError(400, {
+      code: 'VALIDATION_ERROR',
+      message: 'validation failed',
+      details: ['customer name cannot be empty'],
+    });
+
+    const mapped = mapOrderError(apiErr, testRows);
+    expect(Object.keys(mapped.rowErrors).length).toBe(0);
+    expect(mapped.generalError).toContain('customer name cannot be empty');
   });
 });

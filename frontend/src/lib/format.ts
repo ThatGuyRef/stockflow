@@ -8,6 +8,22 @@ export function formatRupiah(n: number): string {
   return rupiahFormatter.format(n);
 }
 
+export function formatDateTime(iso: string | null | undefined): string {
+  if (!iso) {
+    return '—';
+  }
+
+  const date = new Date(iso);
+  if (isNaN(date.getTime())) {
+    return '—';
+  }
+
+  return date.toLocaleString('id-ID', {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+}
+
 export function timeAgo(iso: string | null | undefined, now: Date = new Date()): string {
   if (!iso) {
     return '—';

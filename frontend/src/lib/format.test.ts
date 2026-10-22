@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatRupiah, timeAgo } from './format';
+import { formatDateTime, formatRupiah, timeAgo } from './format';
 
 describe('formatRupiah', () => {
   it('formats positive integers to IDR format', () => {
@@ -56,5 +56,23 @@ describe('timeAgo', () => {
 
     const fiveDaysAgo = new Date(baseNow.getTime() - 5 * 24 * 60 * 60 * 1000).toISOString();
     expect(timeAgo(fiveDaysAgo, baseNow)).toBe('5d ago');
+  });
+});
+
+describe('formatDateTime', () => {
+  it('returns em dash for empty or nullish input', () => {
+    expect(formatDateTime(null)).toBe('—');
+    expect(formatDateTime(undefined)).toBe('—');
+    expect(formatDateTime('')).toBe('—');
+  });
+
+  it('returns em dash for invalid date string', () => {
+    expect(formatDateTime('invalid-iso')).toBe('—');
+  });
+
+  it('formats valid ISO date string correctly', () => {
+    const formatted = formatDateTime('2026-10-19T19:50:11.058Z');
+    expect(formatted).not.toBe('—');
+    expect(formatted).toContain('2026');
   });
 });
