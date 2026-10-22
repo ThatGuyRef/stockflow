@@ -37,6 +37,8 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
     onError: (err) => {
       if (err instanceof ApiError && err.code === 'ALREADY_CANCELLED') {
         setCancelError('Pesanan ini sudah dibatalkan sebelumnya.');
+        setConfirming(false);
+        queryClient.invalidateQueries({ queryKey: ['order', orderId] });
       } else if (err instanceof Error) {
         setCancelError(err.message);
       } else {

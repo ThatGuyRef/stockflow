@@ -36,6 +36,11 @@ export function App() {
     setOrderSearch('');
   };
 
+  const handleOrderCreated = (orderId: number) => {
+    setIsCreatingOrder(false);
+    setViewingOrderId(orderId);
+  };
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       {/* Top Navbar */}
@@ -116,6 +121,7 @@ export function App() {
       {isCreatingOrder && (
         <CreateOrderModal
           onClose={() => setIsCreatingOrder(false)}
+          onCreated={handleOrderCreated}
         />
       )}
 

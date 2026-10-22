@@ -1,20 +1,19 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createOrder } from '../api/client';
-import type { Order } from '../api/types';
 import {
   mapOrderError,
   validateOrderForm,
   type OrderItemRow,
   type RowError,
 } from '../lib/validation';
-import { OrderDetail } from './OrderDetail';
 
 interface CreateOrderModalProps {
   onClose: () => void;
+  onCreated: (orderId: number) => void;
 }
 
-export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
+export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) {
   const queryClient = useQueryClient();
 
   const [customer, setCustomer] = useState('');
@@ -27,8 +26,6 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
   const [rowErrors, setRowErrors] = useState<Record<string, RowError>>({});
   const [generalError, setGeneralError] = useState<string | null>(null);
 
-  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
-
   const mutation = useMutation({
     mutationFn: () => {
       return createOrder({
@@ -40,9 +37,9 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
       });
     },
     onSuccess: (data) => {
-      setCreatedOrder(data);
       queryClient.invalidateQueries({ queryKey: ['products'] });
       queryClient.invalidateQueries({ queryKey: ['summary'] });
+      onCreated(data.id);
     },
     onError: (err) => {
       const mapped = mapOrderError(err, items);
@@ -134,10 +131,6 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
     setGeneralError(null);
     mutation.mutate();
   };
-
-  if (createdOrder) {
-    return <OrderDetail orderId={createdOrder.id} onClose={onClose} />;
-  }
 
   return (
     <div
