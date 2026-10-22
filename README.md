@@ -1,457 +1,312 @@
-# 📦 Stockflow — Inventory & Order Management System
+# Stockflow - Inventory and Order Management System
 
-A robust, concurrency-safe inventory and order management API built with **Go** (Go 1.22+ native routing), **PostgreSQL 16**, and **pgxpool**.
-
----
-
-## 📑 Table of Contents
-- [Architecture & Tech Stack](#-architecture--tech-stack)
-- [Key Architectural & Design Decisions](#-key-architectural--design-decisions)
-- [Database Schema & Seed Strategy](#-database-schema--seed-strategy)
-- [API Reference](#-api-reference)
-- [Error Handling & Response Envelope](#-error-handling--response-envelope)
-- [Getting Started](#-getting-started)
-- [Verification & curl Examples](#-verification--curl-examples)
+Sistem manajemen inventaris dan sales order yang aman dari race condition (concurrency-safe), dibangun dengan backend Go, PostgreSQL 16, dan frontend React (Vite + TypeScript + Tailwind CSS).
 
 ---
 
-## ⚙️ Architecture & Tech Stack
+## Cara Menjalankan
 
-- **Language & Runtime**: Go (v1.22+ / v1.25 toolchain)
-- **HTTP Routing**: Go standard library `http.ServeMux` with native method routing (`"GET /path"`, `"POST /path"`)
-- **Database Driver**: `github.com/jackc/pgx/v5` with connection pooling (`pgxpool.Pool`)
-- **Relational Database**: PostgreSQL 16 Alpine containerized with Docker Compose
-- **Configuration**: Environment variable driven (`DATABASE_URL`) with fallback defaults for local development
+### 1. Database (PostgreSQL 16)
+Pastikan Docker dan Docker Compose sudah terpasang.
 
----
-
-## 🧠 Key Architectural & Design Decisions
-
-### 1. SKU Case Normalization
-- All SKU inputs are normalized to uppercase (`strings.ToUpper(strings.TrimSpace(sku))`).
-- Prevents ambiguous warehouse records (`atk-001` vs `ATK-001`) and ensures consistent lookup across product updates, stock adjustments, and order placements.
-
-### 2. Dynamically Derived `last_movement_at`
-- Instead of maintaining a denormalized timestamp column on the `products` table (which risks state drift), `last_movement_at` is computed on-the-fly via subquery:
-  ```sql
-  (SELECT MAX(sm.created_at) FROM stock_movements sm WHERE sm.product_id = products.id) AS last_movement_at
-  ```
-- Guaranteed to be up-to-date and serialized as `null` for newly created products or products without movement history.
-- Consistently queried in both collection endpoints (`GET /api/products`) and update operations (`PUT /api/products/{id}` via `RETURNING`).
-
-### 3. Operational Definition of "Low Stock"
-- The filter `?status=low_stock` is defined as:
-  ```sql
-  p.is_active AND p.stock <= 10
-  ```
-- **Rationale**: Inactive products (`is_active = FALSE`) are discontinued or archived and no longer sold to customers. A low or zero stock level on an inactive product does not represent an operational replenishment priority.
-- Threshold `10` is centralized in a constant (`const LowStockThreshold = 10`) for reuse across list filters and summary metrics.
-
-### 4. Stock Immutability via Product PUT
-- `PUT /api/products/{id}` intentionally **disallows** directly updating the `stock` column.
-- **Rationale**: Stock must only mutate through explicit, auditable stock movements (`stock_movements`) and sales order lifecycles (`sales_orders`). Allowing arbitrary stock overwrite via PUT breaks the audit trail and causes desynchronization with ledger history.
-
-### 5. Constraint-Driven Concurrency & Conflict Handling (Race-Safe)
-- We deliberately avoid the *check-then-act* anti-pattern (e.g. running `SELECT` before `INSERT`/`UPDATE`/`DELETE`), which is vulnerable to race conditions under concurrent requests.
-- Instead, PostgreSQL constraints are the single source of truth:
-  - **`23505` (`unique_violation`)** $\rightarrow$ mapped to `409 Conflict` (`CodeSKUTaken`).
-  - **`23503` (`foreign_key_violation`)** $\rightarrow$ mapped to `409 Conflict` (`CodeProductHasHistory`) when deleting or mutating SKU of products referenced by order items or movement history.
-
-### 6. Partial Updates with `COALESCE` for `is_active`
-- In `PUT /api/products/{id}`, `is_active` is parsed as `*bool`. If omitted in the JSON payload, it passes `nil` (`SQL NULL`), evaluated safely via:
-  ```sql
-  is_active = COALESCE($4, is_active)
-  ```
-- This prevents archived/inactive products from inadvertently flipping back to `is_active = true` during partial updates (e.g., updating only name or price).
-
-### 7. SQL Wildcard Sanitization & Friendly Error Decoding
-- Search queries escape Postgres ILIKE wildcards (`\`, `%`, and `_`) using `strings.NewReplacer` to prevent unexpected full-table matching or syntax errors on trailing backslashes.
-- `httpx.DecodeJSON` rejects unknown fields via `DisallowUnknownFields()`, maps `io.EOF` to `"request body is required"`, and sanitizes type mismatch errors to prevent internal Go struct names from leaking to API consumers.
-
-### 8. Atomic Stock Mutation & Integer Overflow Protection
-- Stock adjustments run inside an atomic transaction where `out` movements enforce `stock >= qty` directly inside the `UPDATE` statement's `WHERE` clause, eliminating race conditions.
-- Quantities are strictly capped at `1,000,000` to prevent PostgreSQL integer arithmetic overflow (`22003`) on large increments.
-- Responses return `{"product": ..., "movement": ...}` so clients can immediately update both table rows and ledger timelines without secondary fetch requests.
-
-### 9. Deadlock Prevention & Deterministic Item Ordering in Orders
-- Concurrent orders locking multiple rows in opposing order (e.g., Order A locks `ATK-001` then waits for `ATK-003`, while Order B locks `ATK-003` then waits for `ATK-001`) create database deadlocks.
-- To prevent this, incoming order items are sorted lexicographically by SKU before acquiring row locks via `UPDATE products ... WHERE sku = $2 AND stock >= $1`.
-- **Note on Response Ordering**: As a direct consequence of this deterministic locking sequence, order items are processed, persisted, and returned in ascending SKU order, rather than the arbitrary order submitted by the client.
-
-### 10. Valuation Includes Inactive Inventory; Low Stock Focuses on Active
-- `total_stock_value` accounts for both active and inactive inventory (`SUM(price::bigint * stock)`). Even if a product is discontinued from active sales (`is_active = false`), physical units remain stored in warehouse inventory and represent capitalized assets.
-- In contrast, `low_stock_count` strictly filters for `is_active = true` (`COUNT(*) FILTER (WHERE is_active AND stock <= 10)`), aligning with the `GET /api/products?status=low_stock` catalog filter so procurement alerts are not triggered for discontinued items with 0 stock.
-- The aggregation query explicitly casts `price::bigint` before multiplying with `stock` to prevent 32-bit integer arithmetic overflow when inventory valuations exceed 2.1 billion.
-
----
-
-## 🗄️ Database Schema & Seed Strategy
-
-### Relational Schema (`db/001_schema.sql`)
-- **`products`**: `(id, sku, name, price, stock, is_active, created_at)`
-- **`stock_movements`**: `(id, product_id, type, qty, note, created_at)`
-- **`sales_orders`**: `(id, customer, status, total, created_at, cancelled_at)`
-- **`sales_order_items`**: `(id, order_id, sku, qty, unit_price)`
-
-### Comprehensive Seed Scenarios (`db/002_seed.sql`)
-16 stationery (ATK) products specifically structured to exercise all UI states and edge cases:
-- **Low Stock Cards ($\le 10$)**: `ATK-002` (8), `ATK-005` (4), `ATK-009` (7), `ATK-014` (0), and `ATK-016` (3).
-- **Insufficient Stock Trigger (409 Error Demo)**: `ATK-014` (active with 0 stock).
-- **Inactive Badges & Filter**: `ATK-007` (stock 25, inactive) and `ATK-015` (stock 0, inactive).
-- **Clean Deletion Demo (Zero History)**: `ATK-014` and `ATK-015` have no records in `stock_movements` or `sales_order_items`, allowing `DELETE` without FK conflicts.
-- **Order Chronology**: 3 orders (2 `CREATED`, 1 `CANCELLED` with return movements) with dynamic relative timestamps (`NOW() - INTERVAL '...'`) ensuring realistic "Xd ago" and "Xh ago" UI representations.
-
----
-
-## 📡 API Reference
-
-### 1. System Health
-```http
-GET /api/health
-```
-**Response (200 OK):**
-```json
-{
-  "status": "ok"
-}
-```
-
----
-
-### 2. Products
-
-#### `GET /api/products`
-Retrieves a paginated list of products with optional search and status filtering.
-
-**Query Parameters:**
-| Parameter | Type | Default | Description |
-|---|---|---|---|
-| `page` | integer | `1` | Page number ($\ge 1$, capped at `100000`). |
-| `limit` | integer | `10` | Page size ($\ge 1$, capped at `100`). |
-| `search` | string | `""` | Case-insensitive substring search matching `sku` or `name`. Wildcards are safely escaped. |
-| `status` | string | `all` | Filter status: `all`, `active`, `inactive`, `low_stock`. |
-
-**Response (200 OK):**
-```json
-{
-  "data": [
-    {
-      "id": 1,
-      "sku": "ATK-001",
-      "name": "Kertas HVS A4 70gsm (1 rim)",
-      "price": 52000,
-      "stock": 110,
-      "is_active": true,
-      "created_at": "2026-10-08T12:00:00Z",
-      "last_movement_at": "2026-10-19T12:00:00Z"
-    }
-  ],
-  "page": 1,
-  "limit": 10,
-  "total": 16
-}
-```
-
----
-
-#### `GET /api/products/summary`
-Retrieves aggregate product and stock metrics across the inventory catalog in a single efficient query.
-
-**Response (200 OK):**
-```json
-{
-  "total_products": 16,
-  "active_products": 14,
-  "total_stock_value": 9316500,
-  "low_stock_count": 5
-}
-```
-
----
-
-#### `POST /api/products`
-Creates a new product record. `stock` initializes to `0` and `last_movement_at` is `null`.
-
-**Request Body:**
-```json
-{
-  "sku": "ATK-017",
-  "name": "Buku Tulis Bergaris 38 Lembar",
-  "price": 4000,
-  "is_active": true
-}
-```
-*Note: `is_active` is optional (defaults to `true`). Unknown fields (e.g. `stock`) are rejected.*
-
-**Responses:**
-- `201 Created`: Returns newly created `Product` object.
-- `400 Bad Request`: `VALIDATION_ERROR` with a list of missing or invalid fields in `details`.
-- `409 Conflict`: `SKU_TAKEN` when SKU already exists in the database.
-
----
-
-#### `PUT /api/products/{id}`
-Updates an existing product's SKU, name, price, and optional active status.
-
-**Request Body:**
-```json
-{
-  "sku": "ATK-002",
-  "name": "Pulpen Gel Hitam 0.5mm Joyko",
-  "price": 4800
-}
-```
-*Note: If `is_active` is omitted, its current database state is preserved via `COALESCE`.*
-
-**Responses:**
-- `200 OK`: Returns updated `Product` object with populated `last_movement_at`.
-- `400 Bad Request`: Invalid ID or validation failures.
-- `404 Not Found`: Product ID does not exist.
-- `409 Conflict`:
-  - `SKU_TAKEN`: Target SKU belongs to another product.
-  - `PRODUCT_HAS_HISTORY`: Cannot mutate SKU because sales order items reference the existing SKU.
-
----
-
-#### `DELETE /api/products/{id}`
-Deletes a product record if it has no foreign key dependencies.
-
-**Responses:**
-- `204 No Content`: Product deleted successfully (empty body).
-- `404 Not Found`: Product ID does not exist.
-- `409 Conflict`: `PRODUCT_HAS_HISTORY` when product is referenced in `stock_movements` or `sales_order_items`.
-
----
-
-#### `POST /api/products/{id}/stock`
-Adjusts the stock level of a product within an atomic transaction and appends an auditable movement record.
-
-**Request Body:**
-```json
-{
-  "type": "out",
-  "qty": 3,
-  "note": "Pengambilan sisa box file"
-}
-```
-*Note: `type` must be `"in"` or `"out"`. `qty` must be between `1` and `1,000,000`. `note` is optional (stored as `NULL` if omitted or empty).*
-
-**Responses:**
-- `200 OK`: Returns both the updated `product` (with new stock and synchronized `last_movement_at`) and the newly created `movement`.
-- `400 Bad Request`: `VALIDATION_ERROR` (invalid type, qty <= 0, or qty > 1,000,000).
-- `404 Not Found`: Product ID does not exist.
-- `409 Conflict`: `INSUFFICIENT_STOCK` with `available` and `sku` if an `out` operation exceeds current stock.
-
----
-
-#### `GET /api/products/{id}/movements`
-Retrieves the audit trail of all stock movements for a specific product, ordered descending by `created_at` (newest first).
-
-**Responses:**
-- `200 OK`: Returns `{"data": [...]}` containing the list of movements. If the product exists but has no movements, returns `{"data": []}`.
-- `400 Bad Request`: Invalid product ID.
-- `404 Not Found`: Product ID does not exist.
-
----
-
-### 3. Orders
-
-#### `POST /api/orders`
-Creates a new sales order, atomically reducing product stocks, recording order items, and creating `'out'` stock movements within a single ACID transaction.
-
-**Request Body:**
-```json
-{
-  "customer": "PT Sinar Baru",
-  "items": [
-    {
-      "sku": "ATK-001",
-      "qty": 2
-    },
-    {
-      "sku": "ATK-003",
-      "qty": 1
-    }
-  ]
-}
-```
-
-**Key Behaviors:**
-- Validates that `customer` is not empty, `items` is not empty, and all `sku`s are non-empty and non-duplicated (after uppercase normalization).
-- Pre-checks that all requested SKUs exist and are active (`is_active = true`) before acquiring any row locks.
-- Sorts items by SKU to prevent database deadlocks under concurrent ordering.
-- Deducts stock with guarded `UPDATE products ... WHERE sku = $2 AND stock >= $1`. If stock is insufficient, triggers an immediate rollback and returns `409 Conflict` with current available stock.
-- Calculates order total in 64-bit integer, rejecting totals exceeding `math.MaxInt32` (`2147483647`).
-- Appends `stock_movements` with type `'out'` and note `"Order #{order_id}"` for each item.
-
-**Responses:**
-- `201 Created`: Returns the newly created `Order` object including its sorted `items`.
-- `400 Bad Request`: `VALIDATION_ERROR` (empty customer/items, duplicate/unknown/inactive SKUs, non-positive or excessive quantities, total overflow).
-- `409 Conflict`: `INSUFFICIENT_STOCK` with `sku` and `available` if any product lacks required stock. Full rollback guarantees no partial deductions.
-
----
-
-#### `GET /api/orders/{id}`
-Retrieves a specific sales order and all its items by ID.
-
-**Responses:**
-- `200 OK`: Returns the order object including `customer`, `status`, `total`, `created_at`, `cancelled_at`, and its `items` with product `name`, `unit_price`, and calculated `subtotal`.
-- `400 Bad Request`: `VALIDATION_ERROR` (invalid order ID format).
-- `404 Not Found`: `NOT_FOUND` (order ID does not exist).
-
----
-
-#### `POST /api/orders/{id}/cancel`
-Cancels an active order (`CREATED`), restores item quantities back to product stock, and logs auditable `'in'` return movements within an atomic transaction.
-
-**Key Behaviors:**
-- Atomically checks and updates order status with `UPDATE sales_orders SET status = 'CANCELLED', cancelled_at = NOW() WHERE id = $1 AND status = 'CREATED'`.
-- If no row was affected, verifies existence to accurately return `404 Not Found` if the order ID doesn't exist, or `409 Conflict` (`ALREADY_CANCELLED`) if it was already cancelled.
-- Fetches ordered items sorted by SKU (`ORDER BY i.sku`) to prevent lock inversions during stock restitution.
-- Restores product stock (`stock = stock + qty`) and records `'in'` movements with note `"Cancellation Order #{order_id}"`.
-- Uses the active transaction to reload the updated order via `loadOrder` before committing.
-
-**Responses:**
-- `200 OK`: Returns the updated order with status `"CANCELLED"` and populated `cancelled_at`.
-- `400 Bad Request`: `VALIDATION_ERROR` (invalid order ID format).
-- `404 Not Found`: `NOT_FOUND` (order ID does not exist).
-- `409 Conflict`: `ALREADY_CANCELLED` (order was already previously cancelled).
-
----
-
-## 🚨 Error Handling & Response Envelope
-
-All error responses strictly adhere to a unified error envelope format:
-
-```json
-{
-  "error": {
-    "code": "VALIDATION_ERROR",
-    "message": "validation failed",
-    "details": [
-      "sku is required",
-      "price must be greater than or equal to 0"
-    ]
-  }
-}
-```
-
-For domain conflicts, relevant contextual fields (such as `sku`) are placed directly alongside `code` and `message`:
-
-```json
-{
-  "error": {
-    "code": "SKU_TAKEN",
-    "message": "sku already exists",
-    "sku": "ATK-001"
-  }
-}
-```
-
-### Standardized Error Codes
-| Code | HTTP Status | Description |
-|---|---|---|
-| `VALIDATION_ERROR` | 400 | Missing required fields, invalid types, or unsupported query filters. |
-| `NOT_FOUND` | 404 | Resource does not exist. |
-| `SKU_TAKEN` | 409 | Unique constraint violation on product SKU. |
-| `PRODUCT_HAS_HISTORY` | 409 | Foreign key violation when mutating or deleting products with audit records. |
-| `INSUFFICIENT_STOCK` | 409 | Attempting to deduct or order more stock than currently available. |
-| `ALREADY_CANCELLED` | 409 | Order is already in cancelled state. |
-| `INTERNAL` | 500 | Unhandled database or server error. |
-
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-- [Go](https://golang.org/dl/) 1.22+
-- [Docker](https://www.docker.com/) & Docker Compose
-
-### 1. Clone & Start Database
+Jalankan container PostgreSQL:
 ```bash
-git clone https://github.com/ThatGuyRef/stockflow.git
-cd stockflow
-
-# Start PostgreSQL 16 container and initialize schema & seed
 docker compose up -d
 ```
+Database berjalan di host port `5433` (container port 5432) dengan kredensial default:
+- Database: `stockflow`
+- User: `user`
+- Password: `user`
+- Connection URL: `postgres://user:user@localhost:5433/stockflow?sslmode=disable`
 
-### 2. Run Backend Server
+Skema tabel (`db/001_schema.sql`) dan data awal seed (`db/002_seed.sql`) otomatis dieksekusi saat container pertama kali dibuat.
+
+Untuk mereset database dan mengembalikan seluruh data seed ke kondisi awal:
+```bash
+docker compose down -v && docker compose up -d
+```
+
+### 2. Backend (Go 1.22+)
+Backend menggunakan Go native HTTP routing (`http.ServeMux` Go 1.22+) tanpa external web framework.
+
 ```bash
 cd backend
 go run ./cmd/api
 ```
-Server starts on port `8080`:
-```text
-Server is listening on :8080...
+Server akan mendengarkan di port `8080` (`http://localhost:8080`).
+
+Jika ingin menggunakan URL database yang berbeda:
+```bash
+DATABASE_URL="postgres://user:user@localhost:5433/stockflow?sslmode=disable" go run ./cmd/api
 ```
 
-### 3. Run Frontend Development Server
+### 3. Frontend (React 19 + TypeScript + Vite)
 ```bash
 cd frontend
 npm install
 npm run dev
 ```
-Client starts on `http://localhost:5173` with Vite proxy automatically forwarding `/api` requests to backend at `http://localhost:8080`.
+Aplikasi frontend akan berjalan di `http://localhost:5173`.
 
-To run frontend test suite and production build:
+Catatan proxy Vite: File `vite.config.ts` sudah dikonfigurasi dengan proxy:
+```ts
+server: {
+  proxy: {
+    '/api': {
+      target: 'http://localhost:8080',
+      changeOrigin: true,
+    },
+  },
+}
+```
+Semua request ke `/api/*` dari browser secara otomatis diteruskan ke backend Go di `http://localhost:8080`, sehingga tidak terjadi masalah CORS selama tahap pengembangan.
+
+### 4. Menjalankan Test Backend
+Test backend mencakup pengujian konkurensi goroutine untuk mencegah overselling dan race condition:
+```bash
+cd backend
+go test -race ./internal/api/ -v
+```
+
+### 5. Menjalankan Test Frontend dan Build
 ```bash
 cd frontend
-npx vitest run   # Run Vitest test suite
-npm run lint     # Run ESLint check
-npm run build    # TypeScript type-check and Vite build
+# Menjalankan unit test Vitest
+npx vitest run
+
+# Menjalankan linter ESLint
+npm run lint
+
+# Menjalankan type-check TypeScript dan build produksi
+npm run build
 ```
 
 ---
 
-## 💻 Frontend Architecture & Features
+## Contoh curl untuk Semua Endpoint
 
-- **Framework & Libraries**: React 19, Vite, TypeScript, TanStack React Query v5, Tailwind CSS v4.
-- **Unified API Client (`src/api/client.ts`)**: Strictly typed contracts matching backend schema, standardized error parsing with `ApiError` and `isApiErrorEnvelope` type guards.
-- **Form Validation & Server Error Mapping (`src/lib/validation.ts`)**:
-  - Pure functions `validateOrderForm` and `validateQty` validating inputs before mutation.
-  - `mapOrderError`: Case-insensitive normalization (`toUpperCase().trim()`) that correlates backend errors (409 `INSUFFICIENT_STOCK` with `available`, 400 `unknown sku`, 400 `inactive sku`, and `items[N]`) directly to the offending row, applying inline rose highlights and warning messages.
-- **Stock Adjustment Modal (`src/components/AdjustStockModal.tsx`)**: Modal supporting stock in/out adjustments with real-time integer validation, locking submit buttons during pending requests, and reactive cache invalidation of `['products']` and `['summary']`.
-- **Order Lifecycle & Details (`src/components/OrderDetail.tsx`)**:
-  - Live query `['order', id]` displaying customer, creation timestamp, status badges (`CREATED` / `CANCELLED`), and items breakdown with `Intl.NumberFormat('id-ID')` Rupiah currency.
-  - Inline order cancellation with confirmation prompt and optimistic/server query state synchronization (`setQueryData`), automatically triggering reactive stock replenishment on the product table without manual page reloads.
-- **Quick Order Lookup**: Header navbar input with integer validation (`> 0`) enabling instant lookup and inspection of any order by ID.
-
----
-
-## 🧪 Verification & curl Examples
-
+### 1. Health Check
 ```bash
-# 1. Health check
 curl -i http://localhost:8080/api/health
+```
 
-# 2. List products with pagination
-curl -s "http://localhost:8080/api/products?page=2&limit=5"
+### 2. Produk
 
-# 3. Filter low stock products (active with stock <= 10)
+Daftar produk dengan paginasi:
+```bash
+curl -s "http://localhost:8080/api/products?page=1&limit=5"
+```
+
+Pencarian produk (case-insensitive substring):
+```bash
+curl -s "http://localhost:8080/api/products?search=kertas"
+```
+
+Filter status produk (`active`, `inactive`, `low_stock`):
+```bash
+# Produk aktif
+curl -s "http://localhost:8080/api/products?status=active"
+
+# Produk nonaktif
+curl -s "http://localhost:8080/api/products?status=inactive"
+
+# Produk stok menipis (aktif dengan stok <= 10)
 curl -s "http://localhost:8080/api/products?status=low_stock"
+```
 
-# 4. Search products with wildcard escaping
-curl -s "http://localhost:8080/api/products?search=pensil"
-
-# 5. Create a new product
+Tambah produk baru:
+```bash
 curl -i -X POST http://localhost:8080/api/products \
   -H "Content-Type: application/json" \
-  -d '{"sku":"ATK-017","name":"Buku Tulis Bergaris 38 Lembar","price":4000}'
+  -d '{"sku":"ATK-017","name":"Map Plastik L Transparan","price":2500}'
+```
 
-# 6. Attempt duplicate SKU creation (triggers 409 SKU_TAKEN)
+Tambah produk dengan SKU duplikat (menghasilkan 409 SKU_TAKEN):
+```bash
 curl -i -X POST http://localhost:8080/api/products \
   -H "Content-Type: application/json" \
-  -d '{"sku":"ATK-017","name":"Buku Tulis Duplikat","price":4000}'
+  -d '{"sku":"ATK-017","name":"Map Plastik Duplikat","price":2500}'
+```
 
-# 7. Update product name without mutating is_active
-curl -i -X PUT http://localhost:8080/api/products/7 \
+Update produk:
+```bash
+curl -i -X PUT http://localhost:8080/api/products/17 \
   -H "Content-Type: application/json" \
-  -d '{"sku":"ATK-007","name":"Gunting Kertas Sedang 6 Inch Joyko","price":12500}'
+  -d '{"sku":"ATK-017","name":"Map Plastik Folio F4","price":3000}'
+```
 
-# 8. Delete product without history (triggers 204 No Content)
-curl -i -X DELETE http://localhost:8080/api/products/14
+Hapus produk tanpa riwayat mutasi atau order (menghasilkan 204 No Content):
+```bash
+curl -i -X DELETE http://localhost:8080/api/products/17
+```
 
-# 9. Delete product with history (triggers 409 PRODUCT_HAS_HISTORY)
+Hapus produk yang memiliki riwayat mutasi atau order (menghasilkan 409 PRODUCT_HAS_HISTORY):
+```bash
 curl -i -X DELETE http://localhost:8080/api/products/1
 ```
+
+Ringkasan inventaris (Summary):
+```bash
+curl -s http://localhost:8080/api/products/summary
+```
+
+### 3. Penyesuaian Stok (Stock Adjustment) & Riwayat Mutasi
+
+Tambah stok masuk (in):
+```bash
+curl -i -X POST http://localhost:8080/api/products/1/stock \
+  -H "Content-Type: application/json" \
+  -d '{"type":"in","qty":20,"note":"Penerimaan barang dari supplier"}'
+```
+
+Kurangi stok keluar (out):
+```bash
+curl -i -X POST http://localhost:8080/api/products/1/stock \
+  -H "Content-Type: application/json" \
+  -d '{"type":"out","qty":5,"note":"Barang rusak di gudang"}'
+```
+
+Kurangi stok melebihi stok yang tersedia (menghasilkan 409 INSUFFICIENT_STOCK):
+```bash
+curl -i -X POST http://localhost:8080/api/products/16/stock \
+  -H "Content-Type: application/json" \
+  -d '{"type":"out","qty":999,"note":"Uji pengurangan melebihi kapasitas"}'
+```
+
+Input qty tidak valid (menghasilkan 400 VALIDATION_ERROR):
+```bash
+curl -i -X POST http://localhost:8080/api/products/1/stock \
+  -H "Content-Type: application/json" \
+  -d '{"type":"in","qty":0}'
+```
+
+Lihat riwayat pergerakan stok suatu produk:
+```bash
+curl -s http://localhost:8080/api/products/1/movements
+```
+
+### 4. Pesanan (Sales Orders)
+
+Buat pesanan baru (berhasil 201 Created):
+```bash
+curl -i -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer": "CV Maju Terus",
+    "items": [
+      {"sku": "ATK-001", "qty": 2},
+      {"sku": "ATK-003", "qty": 1}
+    ]
+  }'
+```
+
+Buat pesanan dengan stok tidak mencukupi (menghasilkan 409 INSUFFICIENT_STOCK):
+```bash
+curl -i -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer": "Toko Berkah",
+    "items": [
+      {"sku": "ATK-016", "qty": 500}
+    ]
+  }'
+```
+
+Buat pesanan dengan SKU tidak dikenal (menghasilkan 400 VALIDATION_ERROR):
+```bash
+curl -i -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer": "Toko Berkah",
+    "items": [
+      {"sku": "ATK-999", "qty": 1}
+    ]
+  }'
+```
+
+Buat pesanan dengan produk nonaktif (menghasilkan 400 VALIDATION_ERROR):
+```bash
+curl -i -X POST http://localhost:8080/api/orders \
+  -H "Content-Type: application/json" \
+  -d '{
+    "customer": "Toko Berkah",
+    "items": [
+      {"sku": "ATK-007", "qty": 1}
+    ]
+  }'
+```
+
+Lihat detail pesanan berdasarkan ID:
+```bash
+curl -s http://localhost:8080/api/orders/1
+```
+
+Lihat pesanan yang tidak ada (menghasilkan 404 NOT_FOUND):
+```bash
+curl -i http://localhost:8080/api/orders/9999
+```
+
+Batalkan pesanan (mengembalikan stok produk ke database):
+```bash
+curl -i -X POST http://localhost:8080/api/orders/1/cancel
+```
+
+Batalkan pesanan yang sudah berstatus CANCELLED (menghasilkan 409 ALREADY_CANCELLED):
+```bash
+curl -i -X POST http://localhost:8080/api/orders/1/cancel
+```
+
+---
+
+## Keputusan Desain
+
+1. Normalisasi SKU: Semua input SKU selalu di-trim dan diubah ke huruf kapital di backend maupun frontend. Ini mencegah kebingungan seperti `atk-001` versus `ATK-001` serta memastikan pencocokan error server ke baris form selalu akurat.
+2. Timestamp Pergerakan Terakhir Dinamis: Kolom `last_movement_at` tidak disimpan sebagai kolom statis pada tabel `products` untuk menghindari desinkronisasi. Nilai ini dihitung dinamis menggunakan subquery `MAX(sm.created_at)` saat query dijalankan.
+3. Definisi Stok Menipis (Low Stock): Filter `low_stock` didefinisikan sebagai produk yang berstatus aktif dan memiliki stok <= 10 (`is_active AND stock <= 10`). Produk nonaktif tidak perlu memunculkan peringatan pengadaan karena memang sudah dihentikan operasional penjualannya.
+4. Immutability Stok via Update Produk: Endpoint `PUT /api/products/{id}` sengaja melarang perubahan kolom `stock`. Stok hanya boleh bertambah atau berkurang lewat mutasi stok resmi (`stock_movements`) dan pesanan (`sales_orders`).
+5. Concurrency Berbasis Database Constraints: Kami menghindari pengecekan manual sebelum eksekusi (anti-pattern check-then-act) yang rawan race condition. Kami mengandalkan PostgreSQL constraints secara langsung: kode error 23505 dipetakan ke 409 `SKU_TAKEN`, dan 23503 dipetakan ke 409 `PRODUCT_HAS_HISTORY`.
+6. Update Parsial Status Aktif: Pada `PUT /api/products/{id}`, kolom `is_active` diparse sebagai pointer `*bool` dan dievaluasi di SQL menggunakan `is_active = COALESCE($4, is_active)`. Ini memastikan update nama atau harga tidak sengaja mengaktifkan kembali produk yang berstatus nonaktif.
+7. Sanitasi Karakter Wildcard SQL: Karakter `%`, `_`, dan `\` pada input pencarian di-escape terlebih dahulu sebelum dimasukkan ke klausul `ILIKE` untuk mencegah perilaku pencarian yang tidak terduga atau syntax error.
+8. Mutasi Stok Atomik dan Batas Kuantitas: Pengurangan stok dijalankan dalam transaksi dengan klausul `WHERE stock >= qty` langsung di query `UPDATE`. Jika baris yang terpengaruh bernilai 0, sistem langsung mengembalikan status stok terkini (409 `INSUFFICIENT_STOCK`). Kuantitas dibatasi maksimal 1.000.000 untuk mencegah overflow integer di PostgreSQL.
+9. Pencegahan Deadlock pada Transaksi Order: Ketika beberapa goroutine mencoba mengunci sejumlah baris produk secara bersamaan, potensi deadlock bisa terjadi jika urutan penguncian berbeda. Sistem selalu mengurutkan item pesanan berdasarkan SKU secara leksikografis sebelum melakukan update stok, sehingga urutan penguncian baris selalu seragam dan bebas deadlock. Konsekuensinya, item pada pesanan tersimpan dan dikembalikan dalam urutan abjad SKU.
+10. Valuasi Aset vs Peringatan Pengadaan: Nilai total inventaris (`total_stock_value`) menghitung semua barang termasuk yang berstatus nonaktif, karena unit fisik barang di gudang tetap bernilai aset uang. Sebaliknya, penghitung stok menipis (`low_stock_count`) hanya memperhitungkan barang aktif. Perkalian harga dan stok di-cast ke `bigint` untuk mencegah overflow integer 32-bit.
+11. Pengembalian Stok Aman saat Pembatalan: Handler pembatalan order membuka transaksi atomik, mengubah status dari `CREATED` ke `CANCELLED`, mengambil daftar item pesanan, menambahkan kembali stok produk, mencatat mutasi stok `in` dengan catatan "Cancellation Order #id", lalu meng-commit transaksi. Jika order sudah berstatus `CANCELLED`, sistem mengembalikan 409 `ALREADY_CANCELLED`.
+12. Satu Modul API Client Terpusat (Frontend): Semua fungsi HTTP dan pemrosesan envelope error diisolasi ke dalam `src/api/client.ts`. Komponen UI tidak melakukan `fetch` langsung, melainkan menerima data bertipe pasti atau instance `ApiError`.
+13. Pemetaan Error Server ke Input Baris: Fungsi pure `mapOrderError` mengekstrak pesan detail error 400 (`unknown sku`, `inactive sku`, `items[N]`) dan 409 (`INSUFFICIENT_STOCK` beserta sisa stok tersedia) untuk menyorot container baris yang salah dengan border merah rose dan pesan kesalahan inline.
+14. Pengangkatan State Order Modal (Single Overlay): Komponen `OrderDetail` dipakai bersama baik untuk melihat detail order dari pencarian navbar maupun sebagai tampilan konfirmasi setelah order dibuat. State `viewingOrderId` diangkat ke level `App` sehingga tidak terjadi penumpukan overlay ganda di layar.
+15. Sinkronisasi Data Basi pada Pembatalan: Jika pesanan dibatalkan dari tab atau pengguna lain dan menghasilkan error 409 `ALREADY_CANCELLED`, query cache `['order', orderId]` seketika di-invalidate agar badge status dan tombol langsung menyesuaikan dengan status terbaru di server.
+
+---
+
+## Yang Akan Diperbaiki Kalau Ada Waktu Lebih
+
+1. Fitur Autocomplete / Dropdown Pencarian SKU: Form pembuatan pesanan saat ini mengharuskan pengguna mengetik SKU secara manual. Penambahan input autocomplete berbasis pencarian produk aktif akan mempercepat penginputan dan mencegah saltik SKU.
+2. Tampilan Riwayat Transaksi Penjualan (Order List): Saat ini pesanan baru bisa dilihat lewat input pencarian ID atau langsung setelah pesanan dibuat. Tampilan tabel daftar seluruh pesanan dengan filter status dan tanggal akan mempermudah audit operasional.
+3. Tampilan Riwayat Mutasi Barang pada Frontend: Backend sudah menyediakan endpoint `GET /api/products/{id}/movements`. Fitur drawer atau modal timeline pergerakan stok per produk dapat ditambahkan di tabel produk.
+4. Migrasi Database Otomatis: Saat ini skema dan seed dijalankan melalui file SQL di Docker Compose. Menggunakan migration tool seperti `golang-migrate` atau `goose` akan memudahkan evolusi skema di lingkungan staging dan produksi.
+5. Optimistic UI Updates: Pada koneksi lambat, perubahan stok dapat diperbarui terlebih dahulu di antarmuka sebelum respons server tiba, dengan rollback otomatis jika mutasi gagal.
+6. Automated End-to-End Testing: Menambahkan pengujian integrasi browser end-to-end menggunakan Playwright untuk memverifikasi alur pengguna dari input tabel hingga dialog pesanan.
+
+---
+
+## Jam Kerja yang Jujur
+
+Total waktu pengerjaan proyek ini adalah sekitar 7 jam 45 menit, yang dikerjakan secara bertahap dalam beberapa sesi terfokus:
+
+- Perancangan Skema Database, Seed Data, dan Setup Awal (sekitar 1 jam 15 menit): Pembuatan `db/001_schema.sql`, 16 skenario produk ATK pada `db/002_seed.sql`, dan integrasi Docker Compose.
+- Pengembangan Backend Go (sekitar 2 jam 30 menit): Implementasi `http.ServeMux` Go 1.22+, koneksi `pgxpool`, seluruh handler CRUD produk, kalkulasi summary, mutasi stok atomik, order transaksi, dan endpoint pembatalan.
+- Integration Testing Backend & Concurrency (sekitar 1 jam): Penulisan `api_test.go` dengan Go race detector (`-race`), verifikasi isolasi transaksi order, verifikasi rollback atomik saat stok kurang, dan uji no-oversell 20 goroutine bersamaan.
+- Pengembangan Frontend Bagian Dasar (sekitar 1 jam 15 menit): Konfigurasi Vite, TypeScript, Tailwind CSS v4, TanStack Query, pembuatan `client.ts`, fungsi utilitas formatting, ringkasan cards, dan tabel produk dengan paginasi, pencarian, dan filter status.
+- Pengembangan Fitur Interaktif Modal & Error Handling (sekitar 1 jam 45 menit): Implementasi modal penyesuaian stok, form pembuatan pesanan multi-baris dengan per-row error mapping, modal detail & pembatalan pesanan, pencegahan double overlay, dan perapian test Vitest.
+
+---
+
+## Alat yang Dipakai
+
+- Bahasa Pemrograman: Go 1.25, TypeScript 5.8
+- Runtime Lingkungan: Node.js v24, macOS (Darwin arm64)
+- Database: PostgreSQL 16 Alpine berjalan via Docker Compose
+- Web Framework / Library Frontend: React 19, Vite 8, TanStack React Query v5, Tailwind CSS v4
+- Driver Database Backend: `github.com/jackc/pgx/v5` (`pgxpool`)
+- Pengujian & Kualitas Kode: `go test` (dengan flag `-race`), Vitest v3, ESLint v10
+- Alat Bantu AI: Google DeepMind Antigravity sebagai AI pair programmer yang membantu brainstorming struktur arsitektur concurrency database, mengecek skenario perlombaan data (race conditions), menyusun regex pemetaan error server ke form baris, dan memandu pembuatan unit test serta integration test secara komprehensif.
