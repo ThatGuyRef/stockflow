@@ -5,6 +5,8 @@ import type { Product, ProductStatusFilter } from '../api/types';
 import { useDebounce } from '../hooks/useDebounce';
 import { formatRupiah, timeAgo } from '../lib/format';
 
+const LOW_STOCK_THRESHOLD = 10;
+
 interface ProductTableProps {
   onAdjust?: (product: Product) => void;
 }
@@ -53,7 +55,15 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
       {/* Header & Filter Controls */}
       <div className="p-5 border-b border-slate-200 bg-slate-50/50 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
-          <h2 className="text-lg font-semibold text-slate-900">Daftar Produk</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-slate-900">Daftar Produk</h2>
+            {isFetching && !isPending && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
+                <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
+                Memperbarui...
+              </span>
+            )}
+          </div>
           <p className="text-sm text-slate-500 mt-0.5">
             Kelola inventaris, harga satuan, dan pantau stok barang real-time.
           </p>
@@ -103,7 +113,7 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
             <option value="all">Semua Status</option>
             <option value="active">Aktif</option>
             <option value="inactive">Nonaktif</option>
-            <option value="low_stock">Stok Menipis (≤ 10)</option>
+            <option value="low_stock">Stok Menipis (≤ {LOW_STOCK_THRESHOLD})</option>
           </select>
         </div>
       </div>
@@ -208,7 +218,7 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {data.data.map((product) => {
-                  const isLow = product.is_active && product.stock <= 10;
+                  const isLow = product.is_active && product.stock <= LOW_STOCK_THRESHOLD;
                   const isOut = product.stock === 0;
 
                   return (

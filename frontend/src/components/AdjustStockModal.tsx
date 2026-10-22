@@ -17,17 +17,6 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
   const [note, setNote] = useState('');
   const [validationError, setValidationError] = useState<string | null>(null);
 
-  // Menutup modal dengan tombol Esc
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onClose();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
-
   const mutation = useMutation({
     mutationFn: () => {
       return adjustStock(product.id, {
@@ -41,7 +30,40 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
       queryClient.invalidateQueries({ queryKey: ['summary'] });
       onClose();
     },
+    onError: (error) => {
+      if (error instanceof ApiError && error.code === 'INSUFFICIENT_STOCK') {
+        queryClient.invalidateQueries({ queryKey: ['products'] });
+      }
+    },
   });
+
+  // Menutup modal dengan tombol Esc hanya jika request tidak sedang berjalan
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !mutation.isPending) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose, mutation.isPending]);
+
+  const handleTypeChange = (newType: MovementType) => {
+    setType(newType);
+    if (mutation.isError) {
+      mutation.reset();
+    }
+  };
+
+  const handleQtyChange = (val: string) => {
+    setQty(val);
+    if (validationError) {
+      setValidationError(null);
+    }
+    if (mutation.isError) {
+      mutation.reset();
+    }
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -79,10 +101,14 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
   return (
     <div
       className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs"
-      onClick={onClose}
+      onClick={() => {
+        if (!mutation.isPending) {
+          onClose();
+        }
+      }}
     >
       <div
-        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Modal Header */}
@@ -98,7 +124,8 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm"
+            disabled={mutation.isPending}
+            className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm cursor-pointer disabled:opacity-50"
             aria-label="Tutup"
           >
             ✕
@@ -123,7 +150,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
             <div className="grid grid-cols-2 gap-3">
               <button
                 type="button"
-                onClick={() => setType('in')}
+                onClick={() => handleTypeChange('in')}
                 className={`py-2 px-3 text-sm font-medium rounded-lg border flex items-center justify-center gap-2 transition-colors cursor-pointer ${
                   type === 'in'
                     ? 'bg-emerald-50 border-emerald-500 text-emerald-800 ring-2 ring-emerald-500/20'
@@ -134,7 +161,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
               </button>
               <button
                 type="button"
-                onClick={() => setType('out')}
+                onClick={() => handleTypeChange('out')}
                 className={`py-2 px-3 text-sm font-medium rounded-lg border flex items-center justify-center gap-2 transition-colors cursor-pointer ${
                   type === 'out'
                     ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-500/20'
@@ -159,10 +186,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
               type="text"
               inputMode="numeric"
               value={qty}
-              onChange={(e) => {
-                setQty(e.target.value);
-                if (validationError) setValidationError(null);
-              }}
+              onChange={(e) => handleQtyChange(e.target.value)}
               placeholder="Contoh: 5"
               className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
                 validationError
