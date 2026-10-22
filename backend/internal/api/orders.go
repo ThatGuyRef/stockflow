@@ -1,12 +1,14 @@
 package api
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
 	"math"
 	"net/http"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -309,4 +311,79 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 
 	// 8. Return 201 Created with full order representation
 	httpx.WriteJSON(w, http.StatusCreated, order)
+}
+
+type querier interface {
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+}
+
+func loadOrder(ctx context.Context, q querier, id int) (Order, error) {
+	var order Order
+	err := q.QueryRow(ctx, `
+		SELECT id, customer, status, total, created_at, cancelled_at
+		FROM sales_orders
+		WHERE id = $1
+	`, id).Scan(
+		&order.ID,
+		&order.Customer,
+		&order.Status,
+		&order.Total,
+		&order.CreatedAt,
+		&order.CancelledAt,
+	)
+	if err != nil {
+		return Order{}, err
+	}
+
+	rows, err := q.Query(ctx, `
+		SELECT i.sku, p.name, i.qty, i.unit_price
+		FROM sales_order_items i
+		JOIN products p ON p.sku = i.sku
+		WHERE i.order_id = $1
+		ORDER BY i.id
+	`, id)
+	if err != nil {
+		return Order{}, err
+	}
+	defer rows.Close()
+
+	items := make([]OrderItem, 0)
+	for rows.Next() {
+		var item OrderItem
+		if err := rows.Scan(&item.SKU, &item.Name, &item.Qty, &item.UnitPrice); err != nil {
+			return Order{}, err
+		}
+		item.Subtotal = item.Qty * item.UnitPrice
+		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		return Order{}, err
+	}
+	order.Items = items
+
+	return order, nil
+}
+
+func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeValidation, "invalid order id", nil)
+		return
+	}
+
+	order, err := loadOrder(ctx, h.Pool, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			httpx.WriteError(w, http.StatusNotFound, httpx.CodeNotFound, "order not found", nil)
+			return
+		}
+		log.Printf("error getting order %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to get order", nil)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, order)
 }

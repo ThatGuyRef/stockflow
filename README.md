@@ -271,6 +271,16 @@ Creates a new sales order, atomically reducing product stocks, recording order i
 
 ---
 
+#### `GET /api/orders/{id}`
+Retrieves a specific sales order and all its items by ID.
+
+**Responses:**
+- `200 OK`: Returns the order object including `customer`, `status`, `total`, `created_at`, `cancelled_at`, and its `items` with product `name`, `unit_price`, and calculated `subtotal`.
+- `400 Bad Request`: `VALIDATION_ERROR` (invalid order ID format).
+- `404 Not Found`: `NOT_FOUND` (order ID does not exist).
+
+---
+
 ## 🚨 Error Handling & Response Envelope
 
 All error responses strictly adhere to a unified error envelope format:
