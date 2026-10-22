@@ -4,6 +4,54 @@ Sistem manajemen inventaris dan sales order yang aman dari race condition (concu
 
 ---
 
+## Daftar Isi
+- [Arsitektur dan Teknologi](#arsitektur-dan-teknologi)
+- [Skema Database dan Data Seed](#skema-database-dan-data-seed)
+- [Cara Menjalankan](#cara-menjalankan)
+- [Format Response Envelope dan Kode Error](#format-response-envelope-dan-kode-error)
+- [Contoh curl untuk Semua Endpoint](#contoh-curl-untuk-semua-endpoint)
+- [Keputusan Desain](#keputusan-desain)
+- [Yang Akan Diperbaiki Kalau Ada Waktu Lebih](#yang-akan-diperbaiki-kalau-ada-waktu-lebih)
+- [Jam Kerja yang Jujur](#jam-kerja-yang-jujur)
+- [Alat yang Dipakai](#alat-yang-dipakai)
+
+---
+
+## Arsitektur dan Teknologi
+
+### Backend
+- Bahasa: Go (1.22+ native routing / toolchain 1.25)
+- HTTP Router: Standard library `http.ServeMux` dengan method-based routing (`"GET /path"`, `"POST /path"`)
+- Database Driver: `github.com/jackc/pgx/v5` dengan connection pool (`pgxpool.Pool`)
+- Database: PostgreSQL 16 Alpine containerized dengan Docker Compose
+
+### Frontend
+- Framework: React 19 dengan TypeScript
+- Build Tool: Vite 8
+- State & Server Cache: TanStack React Query v5
+- Styling: Tailwind CSS v4
+- Testing: Vitest v3
+
+---
+
+## Skema Database dan Data Seed
+
+### Skema Relasional
+Sistem menggunakan 4 tabel utama pada database PostgreSQL (`db/001_schema.sql`):
+1. `products`: Menyimpan katalog barang (`id`, `sku`, `name`, `price`, `stock`, `is_active`, `created_at`). Kolom `sku` memiliki constraint `UNIQUE` dan diindeks.
+2. `stock_movements`: Menyimpan ledger mutasi pergerakan stok barang (`id`, `product_id`, `type`, `qty`, `note`, `created_at`). Memiliki foreign key ke `products(id)`.
+3. `sales_orders`: Menyimpan header transaksi penjualan (`id`, `customer`, `status`, `total`, `created_at`, `cancelled_at`).
+4. `sales_order_items`: Menyimpan rincian item per transaksi (`id`, `order_id`, `sku`, `qty`, `unit_price`). Memiliki foreign key ke `sales_orders(id)`.
+
+### Skenario Data Seed
+File seed (`db/002_seed.sql`) menyediakan 16 produk alat tulis kantor (ATK) dengan variasi status untuk menguji seluruh alur logika bisnis:
+- Produk dengan stok menipis (stok <= 10): `ATK-002` (8), `ATK-005` (4), `ATK-009` (7), `ATK-014` (0), dan `ATK-016` (3).
+- Produk nonaktif: `ATK-007` (25, inactive) dan `ATK-015` (0, inactive).
+- Produk untuk uji order dan penyesuaian: `ATK-001`, `ATK-003`, `ATK-010`.
+- Data pesanan awal: Order #1 (`CREATED`), Order #2 (`CREATED`), dan Order #3 (`CANCELLED`).
+
+---
+
 ## Cara Menjalankan
 
 ### 1. Database (PostgreSQL 16)
@@ -80,6 +128,45 @@ npm run lint
 # Menjalankan type-check TypeScript dan build produksi
 npm run build
 ```
+
+---
+
+## Format Response Envelope dan Kode Error
+
+### Response Sukses
+Endpoint koleksi atau objek tunggal mengembalikan payload langsung atau berstruktur:
+```json
+{
+  "data": [ ... ],
+  "page": 1,
+  "limit": 10,
+  "total": 16
+}
+```
+
+### Response Error
+Semua error dibungkus dalam envelope standar:
+```json
+{
+  "error": {
+    "code": "INSUFFICIENT_STOCK",
+    "message": "insufficient stock",
+    "sku": "ATK-016",
+    "available": 3
+  }
+}
+```
+
+### Daftar Kode Error Standar
+| Kode | HTTP Status | Deskripsi |
+|---|---|---|
+| `VALIDATION_ERROR` | 400 | Data tidak lengkap, tipe tidak sesuai, format qty tidak valid, atau SKU tidak dikenal. |
+| `NOT_FOUND` | 404 | Resource (produk atau order) tidak ditemukan di database. |
+| `SKU_TAKEN` | 409 | Pelanggaran constraint unik pada SKU produk. |
+| `PRODUCT_HAS_HISTORY` | 409 | Pelanggaran foreign key saat mencoba menghapus produk yang memiliki mutasi/order. |
+| `INSUFFICIENT_STOCK` | 409 | Stok gudang tidak mencukupi untuk pengurangan stok atau pesanan yang diminta. |
+| `ALREADY_CANCELLED` | 409 | Pesanan yang hendak dibatalkan sudah berstatus CANCELLED sebelumnya. |
+| `INTERNAL` | 500 | Kesalahan tidak terduga pada server atau database. |
 
 ---
 
