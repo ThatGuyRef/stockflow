@@ -36,13 +36,13 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
     },
     onError: (err) => {
       if (err instanceof ApiError && err.code === 'ALREADY_CANCELLED') {
-        setCancelError('Pesanan ini sudah dibatalkan sebelumnya.');
+        setCancelError('This order has already been cancelled.');
         setConfirming(false);
         queryClient.invalidateQueries({ queryKey: ['order', orderId] });
       } else if (err instanceof Error) {
         setCancelError(err.message);
       } else {
-        setCancelError('Gagal membatalkan pesanan.');
+        setCancelError('Failed to cancel order.');
       }
     },
   });
@@ -73,7 +73,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
         {isLoading && (
           <div className="p-8 text-center space-y-4">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-3 border-indigo-600 border-t-transparent" />
-            <p className="text-sm text-slate-500">Memuat data Order #{orderId}...</p>
+            <p className="text-sm text-slate-500">Loading Order #{orderId}...</p>
           </div>
         )}
 
@@ -82,14 +82,14 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
           <div className="p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <h3 className="text-base font-semibold text-slate-900">
-                Detail Order #{orderId}
+                Order #{orderId} Details
               </h3>
               {onClose && (
                 <button
                   type="button"
                   onClick={onClose}
                   className="text-slate-400 hover:text-slate-600 p-1 rounded-lg text-sm cursor-pointer"
-                  aria-label="Tutup"
+                  aria-label="Close"
                 >
                   ✕
                 </button>
@@ -101,27 +101,27 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
               <div className="p-4 bg-amber-50 border border-amber-200 rounded-lg text-center space-y-2">
                 <div className="text-2xl">🔍</div>
                 <h4 className="text-sm font-bold text-amber-900">
-                  Order #{orderId} Tidak Ditemukan
+                  Order #{orderId} Not Found
                 </h4>
                 <p className="text-xs text-amber-700">
-                  Data pesanan dengan ID ini tidak ada di sistem. Pastikan nomor pesanan yang Anda cari sudah benar.
+                  No order record exists with this ID. Please verify the order number.
                 </p>
               </div>
             ) : (
               <div className="p-4 bg-rose-50 border border-rose-200 rounded-lg text-center space-y-2">
                 <div className="text-2xl">⚠️</div>
                 <h4 className="text-sm font-bold text-rose-900">
-                  Gagal Memuat Pesanan
+                  Failed to Load Order
                 </h4>
                 <p className="text-xs text-rose-700">
-                  {error instanceof Error ? error.message : 'Terjadi kesalahan sistem.'}
+                  {error instanceof Error ? error.message : 'An unexpected error occurred.'}
                 </p>
                 <button
                   type="button"
                   onClick={() => refetch()}
                   className="mt-2 px-3 py-1.5 text-xs font-medium text-white bg-rose-600 hover:bg-rose-700 rounded-md transition-colors cursor-pointer"
                 >
-                  Coba Lagi
+                  Retry
                 </button>
               </div>
             )}
@@ -133,7 +133,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                   onClick={onClose}
                   className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
                 >
-                  Tutup
+                  Close
                 </button>
               </div>
             )}
@@ -165,7 +165,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                   onClick={onClose}
                   disabled={cancelMutation.isPending}
                   className="text-slate-400 hover:text-slate-600 p-1 rounded-lg text-sm cursor-pointer disabled:opacity-50"
-                  aria-label="Tutup"
+                  aria-label="Close"
                 >
                   ✕
                 </button>
@@ -175,18 +175,18 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
             {/* Meta Information */}
             <div className="px-6 py-3.5 bg-slate-50/30 border-b border-slate-100 grid grid-cols-2 gap-3 text-xs">
               <div>
-                <span className="text-slate-400 block mb-0.5">Pelanggan</span>
+                <span className="text-slate-400 block mb-0.5">Customer</span>
                 <span className="font-semibold text-slate-800">{order.customer}</span>
               </div>
               <div>
-                <span className="text-slate-400 block mb-0.5">Waktu Pembuatan</span>
+                <span className="text-slate-400 block mb-0.5">Created At</span>
                 <span className="text-slate-700">
                   {formatDateTime(order.created_at)} ({timeAgo(order.created_at)})
                 </span>
               </div>
               {order.cancelled_at && (
                 <div className="col-span-2 pt-1 text-rose-700 flex items-center gap-1.5 font-medium">
-                  <span>Dibatalkan pada:</span>
+                  <span>Cancelled At:</span>
                   <span>
                     {formatDateTime(order.cancelled_at)} ({timeAgo(order.cancelled_at)})
                   </span>
@@ -198,7 +198,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
             <div className="p-6 space-y-4">
               <div>
                 <h4 className="text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-                  Daftar Barang ({order.items.length})
+                  Order Items ({order.items.length})
                 </h4>
                 <div className="border border-slate-200 rounded-lg overflow-hidden">
                   <div className="max-h-56 overflow-y-auto">
@@ -206,9 +206,9 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                       <thead className="bg-slate-50 border-b border-slate-200 sticky top-0 text-slate-600">
                         <tr>
                           <th className="py-2 px-3 font-semibold">SKU</th>
-                          <th className="py-2 px-3 font-semibold">Nama Barang</th>
+                          <th className="py-2 px-3 font-semibold">Item Name</th>
                           <th className="py-2 px-3 font-semibold text-right">Qty</th>
-                          <th className="py-2 px-3 font-semibold text-right">Harga Satuan</th>
+                          <th className="py-2 px-3 font-semibold text-right">Unit Price</th>
                           <th className="py-2 px-3 font-semibold text-right">Subtotal</th>
                         </tr>
                       </thead>
@@ -238,7 +238,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                   {/* Total Bar */}
                   <div className="px-4 py-2.5 bg-slate-50 border-t border-slate-200 flex items-center justify-between">
                     <span className="text-xs font-bold text-slate-700 uppercase">
-                      Total Pesanan
+                      Total Order
                     </span>
                     <span className="text-base font-bold text-indigo-700">
                       {formatRupiah(order.total)}
@@ -270,12 +270,12 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                           disabled={cancelMutation.isPending}
                           className="px-3 py-1.5 text-xs font-medium text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                         >
-                          Batalkan Pesanan
+                          Cancel Order
                         </button>
                       ) : (
                         <div className="flex items-center gap-2 bg-rose-50/80 border border-rose-200 rounded-lg px-3 py-1.5">
                           <span className="text-xs text-rose-800 font-medium">
-                            Batalkan pesanan? Stok akan dikembalikan.
+                            Cancel this order? Stock will be restored.
                           </span>
                           <button
                             type="button"
@@ -283,7 +283,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                             disabled={cancelMutation.isPending}
                             className="px-2.5 py-1 text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                           >
-                            {cancelMutation.isPending ? 'Membatalkan...' : 'Ya, Batalkan'}
+                            {cancelMutation.isPending ? 'Cancelling...' : 'Yes, Cancel'}
                           </button>
                           <button
                             type="button"
@@ -291,7 +291,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                             disabled={cancelMutation.isPending}
                             className="px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-200 rounded-md transition-colors cursor-pointer disabled:opacity-50"
                           >
-                            Tidak
+                            No
                           </button>
                         </div>
                       )}
@@ -306,7 +306,7 @@ export function OrderDetail({ orderId, onClose }: OrderDetailProps) {
                     disabled={cancelMutation.isPending}
                     className="px-4 py-2 text-xs font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
                   >
-                    Tutup
+                    Close
                   </button>
                 )}
               </div>

@@ -56,27 +56,27 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
       <div className="p-5 border-b border-slate-200 bg-slate-50/50 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-slate-900">Daftar Produk</h2>
+            <h2 className="text-lg font-semibold text-slate-900">Product List</h2>
             {isFetching && !isPending && (
               <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium bg-indigo-50 text-indigo-600 border border-indigo-100">
                 <span className="w-1.5 h-1.5 rounded-full bg-indigo-600 animate-pulse" />
-                Memperbarui...
+                Updating...
               </span>
             )}
           </div>
           <p className="text-sm text-slate-500 mt-0.5">
-            Kelola inventaris, harga satuan, dan pantau stok barang real-time.
+            Manage inventory, unit prices, and monitor stock levels in real time.
           </p>
         </div>
 
         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-          {/* Input Pencarian */}
+          {/* Search Input */}
           <div className="relative">
             <input
               type="text"
               value={search}
               onChange={(e) => handleSearchChange(e.target.value)}
-              placeholder="Cari SKU atau nama..."
+              placeholder="Search SKU or name..."
               className="w-full sm:w-64 pl-9 pr-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors"
             />
             <svg
@@ -97,28 +97,28 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
                 type="button"
                 onClick={() => handleSearchChange('')}
                 className="absolute right-2.5 top-2.5 text-slate-400 hover:text-slate-600 text-xs"
-                title="Hapus pencarian"
+                title="Clear search"
               >
                 ✕
               </button>
             )}
           </div>
 
-          {/* Filter Status */}
+          {/* Status Filter */}
           <select
             value={status}
             onChange={(e) => handleStatusChange(e.target.value as ProductStatusFilter)}
             className="px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 text-slate-700 transition-colors"
           >
-            <option value="all">Semua Status</option>
-            <option value="active">Aktif</option>
-            <option value="inactive">Nonaktif</option>
-            <option value="low_stock">Stok Menipis (≤ {LOW_STOCK_THRESHOLD})</option>
+            <option value="all">All Statuses</option>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="low_stock">Low Stock (≤ {LOW_STOCK_THRESHOLD})</option>
           </select>
         </div>
       </div>
 
-      {/* STATE 1: Error State dengan tombol Coba Lagi */}
+      {/* STATE 1: Error State with Retry Button */}
       {isError && (
         <div className="p-8 text-center bg-rose-50/50">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-rose-100 text-rose-600 mb-3">
@@ -126,18 +126,18 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
           </div>
-          <h3 className="text-base font-medium text-slate-900">Gagal Memuat Produk</h3>
+          <h3 className="text-base font-medium text-slate-900">Failed to Load Products</h3>
           <p className="text-sm text-slate-600 mt-1 max-w-md mx-auto">
             {error instanceof ApiError
               ? error.message
-              : 'Terjadi gangguan saat menghubungkan ke server backend.'}
+              : 'An error occurred while connecting to the backend server.'}
           </p>
           <button
             type="button"
             onClick={() => refetch()}
             className="mt-4 px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors cursor-pointer"
           >
-            Coba lagi
+            Retry
           </button>
         </div>
       )}
@@ -149,12 +149,12 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
             <thead className="bg-slate-50 border-b border-slate-200 text-slate-500 text-xs uppercase font-semibold">
               <tr>
                 <th className="px-5 py-3">SKU</th>
-                <th className="px-5 py-3">Nama Produk</th>
-                <th className="px-5 py-3 text-right">Harga</th>
-                <th className="px-5 py-3 text-center">Stok</th>
+                <th className="px-5 py-3">Product Name</th>
+                <th className="px-5 py-3 text-right">Price</th>
+                <th className="px-5 py-3 text-center">Stock</th>
                 <th className="px-5 py-3 text-center">Status</th>
-                <th className="px-5 py-3">Mutasi Terakhir</th>
-                <th className="px-5 py-3 text-right">Aksi</th>
+                <th className="px-5 py-3">Last Movement</th>
+                <th className="px-5 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -174,7 +174,7 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
         </div>
       )}
 
-      {/* STATE 3: Data Kosong */}
+      {/* STATE 3: Empty State */}
       {!isPending && !isError && data?.data.length === 0 && (
         <div className="p-12 text-center">
           <div className="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 text-slate-400 mb-3">
@@ -182,11 +182,11 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4" />
             </svg>
           </div>
-          <h3 className="text-base font-medium text-slate-900">Tidak ada produk ditemukan</h3>
+          <h3 className="text-base font-medium text-slate-900">No products found</h3>
           <p className="text-sm text-slate-500 mt-1 max-w-sm mx-auto">
             {search || status !== 'all'
-              ? 'Coba sesuaikan kata kunci pencarian atau ubah filter status yang dipilih.'
-              : 'Belum ada produk yang terdaftar di sistem.'}
+              ? 'Try adjusting your search terms or filter status.'
+              : 'No products registered in the system yet.'}
           </p>
           {(search || status !== 'all') && (
             <button
@@ -194,13 +194,13 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
               onClick={handleResetFilters}
               className="mt-4 px-3 py-1.5 text-xs font-medium text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-md transition-colors cursor-pointer"
             >
-              Reset Filter
+              Reset Filters
             </button>
           )}
         </div>
       )}
 
-      {/* SUCCESS STATE: Tabel Produk */}
+      {/* SUCCESS STATE: Product Table */}
       {!isPending && !isError && data && data.data.length > 0 && (
         <>
           <div className="overflow-x-auto">
@@ -208,12 +208,12 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
               <thead className="bg-slate-50 border-b border-slate-200 text-slate-600 text-xs uppercase font-semibold">
                 <tr>
                   <th className="px-5 py-3">SKU</th>
-                  <th className="px-5 py-3">Nama Produk</th>
-                  <th className="px-5 py-3 text-right">Harga</th>
-                  <th className="px-5 py-3 text-center">Stok</th>
+                  <th className="px-5 py-3">Product Name</th>
+                  <th className="px-5 py-3 text-right">Price</th>
+                  <th className="px-5 py-3 text-center">Stock</th>
                   <th className="px-5 py-3 text-center">Status</th>
-                  <th className="px-5 py-3">Mutasi Terakhir</th>
-                  <th className="px-5 py-3 text-right">Aksi</th>
+                  <th className="px-5 py-3">Last Movement</th>
+                  <th className="px-5 py-3 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -238,11 +238,11 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
                       <td className="px-5 py-3.5 text-center whitespace-nowrap">
                         {isOut ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-rose-50 text-rose-700 border border-rose-200">
-                            Habis (0)
+                            Out of Stock (0)
                           </span>
                         ) : isLow ? (
                           <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200">
-                            {product.stock} (Menipis)
+                            {product.stock} (Low Stock)
                           </span>
                         ) : (
                           <span className="font-semibold text-slate-900">
@@ -253,11 +253,11 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
                       <td className="px-5 py-3.5 text-center whitespace-nowrap">
                         {product.is_active ? (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
-                            Aktif
+                            Active
                           </span>
                         ) : (
                           <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                            Nonaktif
+                            Inactive
                           </span>
                         )}
                       </td>
@@ -283,17 +283,17 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
           {/* Pagination Controls */}
           <div className="px-5 py-3.5 border-t border-slate-200 bg-slate-50/50 flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-slate-500">
             <div>
-              Menampilkan{' '}
+              Showing{' '}
               <span className="font-medium text-slate-900">
                 {(page - 1) * limit + 1}
               </span>{' '}
-              -{' '}
+              to{' '}
               <span className="font-medium text-slate-900">
                 {Math.min(page * limit, data.total)}
               </span>{' '}
-              dari{' '}
+              of{' '}
               <span className="font-medium text-slate-900">{data.total}</span>{' '}
-              produk
+              products
             </div>
 
             <div className="flex items-center gap-2">
@@ -303,10 +303,10 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
                 disabled={page <= 1 || isFetching}
                 className="px-3 py-1.5 border border-slate-300 rounded-md bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-slate-700 transition-colors cursor-pointer"
               >
-                Sebelumnya
+                Previous
               </button>
               <span className="text-xs font-medium text-slate-700 px-2">
-                Halaman {page} dari {totalPages}
+                Page {page} of {totalPages}
               </span>
               <button
                 type="button"
@@ -314,7 +314,7 @@ export function ProductTable({ onAdjust }: ProductTableProps) {
                 disabled={page >= totalPages || isFetching}
                 className="px-3 py-1.5 border border-slate-300 rounded-md bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed text-xs font-medium text-slate-700 transition-colors cursor-pointer"
               >
-                Selanjutnya
+                Next
               </button>
             </div>
           </div>

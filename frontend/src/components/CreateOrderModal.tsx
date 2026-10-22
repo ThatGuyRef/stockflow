@@ -147,10 +147,10 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              Buat Pesanan Baru
+              Create New Order
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Kuantitas stok akan dikurangi secara atomik dalam transaksi aman.
+              Stock quantities will be atomically deducted within a secure transaction.
             </p>
           </div>
           <button
@@ -158,7 +158,7 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
             onClick={onClose}
             disabled={mutation.isPending}
             className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm cursor-pointer disabled:opacity-50"
-            aria-label="Tutup"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -166,13 +166,13 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
 
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-6 space-y-5">
-            {/* Input Customer */}
+            {/* Customer Input */}
             <div>
               <label
                 htmlFor="order-customer"
                 className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
               >
-                Nama Pelanggan <span className="text-rose-500">*</span>
+                Customer Name <span className="text-rose-500">*</span>
               </label>
               <input
                 id="order-customer"
@@ -180,7 +180,7 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
                 disabled={mutation.isPending}
                 value={customer}
                 onChange={(e) => handleCustomerChange(e.target.value)}
-                placeholder="Contoh: PT Sumber Rejeki / Bpk. Budi"
+                placeholder="e.g. Acme Corp / John Doe"
                 className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 transition-colors disabled:bg-slate-100 ${
                   customerError
                     ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
@@ -195,11 +195,11 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
               )}
             </div>
 
-            {/* Section Items */}
+            {/* Items Section */}
             <div>
               <div className="flex items-center justify-between mb-2">
                 <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                  Daftar Barang (Item) <span className="text-rose-500">*</span>
+                  Order Items <span className="text-rose-500">*</span>
                 </label>
                 <button
                   type="button"
@@ -207,7 +207,7 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
                   disabled={mutation.isPending}
                   className="text-xs font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-colors"
                 >
-                  <span>+</span> Tambah Baris
+                  <span>+</span> Add Item
                 </button>
               </div>
 
@@ -283,13 +283,13 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
                           onClick={() => handleRemoveItem(item.key)}
                           disabled={items.length <= 1 || mutation.isPending}
                           className="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed p-1.5 rounded transition-colors cursor-pointer"
-                          title="Hapus baris"
+                          title="Remove item"
                         >
                           ✕
                         </button>
                       </div>
 
-                      {/* Error Pesan Server (409 Insufficient Stock / 400 Validation) */}
+                      {/* Server Error Message (409 Insufficient Stock / 400 Validation) */}
                       {hasServerError && (
                         <div className="pl-7 text-xs text-rose-700 font-semibold flex items-center gap-1.5">
                           <span>⚠️</span>
@@ -297,7 +297,7 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
                         </div>
                       )}
 
-                      {/* Error Validasi Lokal Form */}
+                      {/* Local Form Validation Error */}
                       {(err?.sku || err?.qty) && !hasServerError && (
                         <div className="pl-7 text-xs text-rose-600 font-medium space-x-2">
                           {err.sku && <span>{err.sku}</span>}
@@ -327,7 +327,7 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
                 disabled={mutation.isPending}
                 className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
               >
-                Batal
+                Cancel
               </button>
               <button
                 type="submit"
@@ -355,10 +355,10 @@ export function CreateOrderModal({ onClose, onCreated }: CreateOrderModalProps) 
                         d="M4 12a8 8 0 018-8v8H4z"
                       />
                     </svg>
-                    Memproses Order...
+                    Processing Order...
                   </>
                 ) : (
-                  'Buat Pesanan'
+                  'Create Order'
                 )}
               </button>
             </div>

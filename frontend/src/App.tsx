@@ -57,13 +57,13 @@ export function App() {
           </div>
 
           <div className="flex items-center gap-3">
-            {/* Input Buka Order # */}
+            {/* Input Open Order # */}
             <form onSubmit={handleOpenOrder} className="flex items-center gap-1.5 relative">
               <div className="relative">
                 <input
                   type="text"
                   inputMode="numeric"
-                  placeholder="Buka order #..."
+                  placeholder="Open order #..."
                   value={orderSearch}
                   onChange={(e) => {
                     setOrderSearch(e.target.value);
@@ -85,7 +85,7 @@ export function App() {
                 type="submit"
                 className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:text-slate-900 rounded-lg shadow-2xs transition-colors cursor-pointer"
               >
-                Buka
+                Open
               </button>
             </form>
 
@@ -94,7 +94,7 @@ export function App() {
               onClick={() => setIsCreatingOrder(true)}
               className="px-3.5 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
             >
-              <span className="text-sm font-bold">+</span> Buat Pesanan
+              <span className="text-sm font-bold">+</span> Create Order
             </button>
           </div>
         </div>
@@ -102,14 +102,14 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Ringkasan Inventaris */}
+        {/* Inventory Summary */}
         <SummaryCards />
 
-        {/* Tabel Utama Produk */}
+        {/* Main Products Table */}
         <ProductTable onAdjust={setAdjusting} />
       </main>
 
-      {/* Modal Penyesuaian Stok */}
+      {/* Stock Adjustment Modal */}
       {adjusting && (
         <AdjustStockModal
           product={adjusting}
@@ -117,7 +117,7 @@ export function App() {
         />
       )}
 
-      {/* Modal Pembuatan Order */}
+      {/* Create Order Modal */}
       {isCreatingOrder && (
         <CreateOrderModal
           onClose={() => setIsCreatingOrder(false)}
@@ -125,7 +125,7 @@ export function App() {
         />
       )}
 
-      {/* Modal Detail Order */}
+      {/* Order Detail Modal */}
       {viewingOrderId !== null && (
         <OrderDetail
           orderId={viewingOrderId}

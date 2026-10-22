@@ -11,13 +11,13 @@ export function SummaryCards() {
   if (isError) {
     return (
       <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-xs text-rose-700 flex items-center justify-between">
-        <span>Gagal memuat ringkasan inventaris.</span>
+        <span>Failed to load inventory summary.</span>
         <button
           type="button"
           onClick={() => refetch()}
           className="font-medium underline hover:text-rose-900 cursor-pointer"
         >
-          Coba lagi
+          Retry
         </button>
       </div>
     );
@@ -43,11 +43,11 @@ export function SummaryCards() {
 
   return (
     <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      {/* 1. Total Produk */}
+      {/* 1. Total Products */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Total Produk
+            Total Products
           </p>
           <p className="text-2xl font-bold text-slate-900 mt-1">
             {data.total_products}
@@ -58,11 +58,11 @@ export function SummaryCards() {
         </div>
       </div>
 
-      {/* 2. Produk Aktif */}
+      {/* 2. Active Products */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Produk Aktif
+            Active Products
           </p>
           <p className="text-2xl font-bold text-emerald-600 mt-1">
             {data.active_products}
@@ -73,11 +73,11 @@ export function SummaryCards() {
         </div>
       </div>
 
-      {/* 3. Total Nilai Stok */}
+      {/* 3. Total Stock Value */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Total Nilai Stok
+            Total Stock Value
           </p>
           <p className="text-2xl font-bold text-slate-900 mt-1">
             {formatRupiah(data.total_stock_value)}
@@ -88,11 +88,11 @@ export function SummaryCards() {
         </div>
       </div>
 
-      {/* 4. Stok Menipis (<= 10) */}
+      {/* 4. Low Stock (<= 10) */}
       <div className="bg-white p-5 rounded-xl border border-slate-200 shadow-sm flex items-center justify-between">
         <div>
           <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
-            Stok Menipis (≤ 10)
+            Low Stock (≤ 10)
           </p>
           <p className="text-2xl font-bold text-amber-600 mt-1">
             {data.low_stock_count}

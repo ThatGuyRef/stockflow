@@ -78,13 +78,13 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
     mutation.mutate();
   };
 
-  // Format pesan error API
+  // API error message formatting
   let apiErrorMessage: string | null = null;
   if (mutation.error) {
     if (mutation.error instanceof ApiError) {
       if (mutation.error.code === 'INSUFFICIENT_STOCK') {
         const available = mutation.error.available ?? 0;
-        apiErrorMessage = `Stok tidak mencukupi untuk pengurangan ini (tersedia ${available}).`;
+        apiErrorMessage = `Insufficient stock for this deduction (available: ${available}).`;
       } else {
         const details = mutation.error.details?.length
           ? `: ${mutation.error.details.join(', ')}`
@@ -94,7 +94,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
     } else if (mutation.error instanceof Error) {
       apiErrorMessage = mutation.error.message;
     } else {
-      apiErrorMessage = 'Terjadi kesalahan sistem saat menyesuaikan stok.';
+      apiErrorMessage = 'An unexpected error occurred while adjusting stock.';
     }
   }
 
@@ -115,7 +115,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              Sesuaikan Stok Produk
+              Adjust Product Stock
             </h3>
             <p className="text-xs text-slate-500 font-mono mt-0.5">
               {product.sku} — {product.name}
@@ -126,7 +126,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
             onClick={onClose}
             disabled={mutation.isPending}
             className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm cursor-pointer disabled:opacity-50"
-            aria-label="Tutup"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -134,18 +134,18 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
 
         {/* Modal Body Form */}
         <form onSubmit={handleSubmit} className="p-6 space-y-4">
-          {/* Info Stok Saat Ini */}
+          {/* Current Stock Info */}
           <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex items-center justify-between text-sm">
-            <span className="text-slate-600">Stok Saat Ini:</span>
+            <span className="text-slate-600">Current Stock:</span>
             <span className="font-bold text-slate-900">
-              {product.stock} unit
+              {product.stock} units
             </span>
           </div>
 
-          {/* Tipe Penyesuaian: In / Out */}
+          {/* Adjustment Type: In / Out */}
           <div>
             <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
-              Jenis Mutasi
+              Adjustment Type
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -157,7 +157,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
                     : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span>📥</span> Stok Masuk (In)
+                <span>📥</span> Stock In (Add)
               </button>
               <button
                 type="button"
@@ -168,18 +168,18 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
                     : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span>📤</span> Stok Keluar (Out)
+                <span>📤</span> Stock Out (Deduct)
               </button>
             </div>
           </div>
 
-          {/* Input Qty */}
+          {/* Qty Input */}
           <div>
             <label
               htmlFor="adjust-qty"
               className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
             >
-              Jumlah (Qty) <span className="text-rose-500">*</span>
+              Quantity (Qty) <span className="text-rose-500">*</span>
             </label>
             <input
               id="adjust-qty"
@@ -187,7 +187,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
               inputMode="numeric"
               value={qty}
               onChange={(e) => handleQtyChange(e.target.value)}
-              placeholder="Contoh: 5"
+              placeholder="e.g. 5"
               className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
                 validationError
                   ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
@@ -202,25 +202,25 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
             )}
           </div>
 
-          {/* Input Catatan (Optional) */}
+          {/* Notes Input (Optional) */}
           <div>
             <label
               htmlFor="adjust-note"
               className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
             >
-              Catatan <span className="text-slate-400 text-xs font-normal">(opsional)</span>
+              Notes <span className="text-slate-400 text-xs font-normal">(optional)</span>
             </label>
             <textarea
               id="adjust-note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Contoh: Restock dari supplier / pemakaian divisi"
+              placeholder="e.g. Supplier restock / internal usage"
               rows={2}
               className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors resize-none"
             />
           </div>
 
-          {/* Error Message Box dari Backend */}
+          {/* Backend Error Message Box */}
           {apiErrorMessage && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-2">
               <span className="font-bold text-sm leading-none mt-0.5">⚠️</span>
@@ -236,7 +236,7 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
               disabled={mutation.isPending}
               className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
             >
-              Batal
+              Cancel
             </button>
             <button
               type="submit"
@@ -264,10 +264,10 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
                       d="M4 12a8 8 0 018-8v8H4z"
                     />
                   </svg>
-                  Menyimpan...
+                  Saving...
                 </>
               ) : (
-                'Simpan'
+                'Save Adjustment'
               )}
             </button>
           </div>
