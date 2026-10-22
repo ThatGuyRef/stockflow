@@ -1,18 +1,22 @@
 import { useEffect, useState, type FormEvent } from 'react';
-import { validateQty } from '../lib/validation';
-
-export interface OrderItemRow {
-  key: string;
-  sku: string;
-  qty: string;
-}
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { createOrder } from '../api/client';
+import type { Order } from '../api/types';
+import { formatRupiah } from '../lib/format';
+import {
+  mapOrderError,
+  validateOrderForm,
+  type OrderItemRow,
+  type RowError,
+} from '../lib/validation';
 
 interface CreateOrderModalProps {
   onClose: () => void;
-  onSubmitSuccess?: () => void;
 }
 
 export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
+  const queryClient = useQueryClient();
+
   const [customer, setCustomer] = useState('');
   const [items, setItems] = useState<OrderItemRow[]>([
     { key: crypto.randomUUID(), sku: '', qty: '1' },
@@ -20,24 +24,54 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
 
   const [customerError, setCustomerError] = useState<string | null>(null);
   const [itemsError, setItemsError] = useState<string | null>(null);
-  const [rowErrors, setRowErrors] = useState<Record<string, { sku?: string; qty?: string }>>({});
+  const [rowErrors, setRowErrors] = useState<Record<string, RowError>>({});
+  const [generalError, setGeneralError] = useState<string | null>(null);
 
-  // Escape key handler
+  const [createdOrder, setCreatedOrder] = useState<Order | null>(null);
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      return createOrder({
+        customer: customer.trim(),
+        items: items.map((it) => ({
+          sku: it.sku.trim().toUpperCase(),
+          qty: parseInt(it.qty.trim(), 10),
+        })),
+      });
+    },
+    onSuccess: (data) => {
+      setCreatedOrder(data);
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+    },
+    onError: (err) => {
+      const mapped = mapOrderError(err, items);
+      setRowErrors((prev) => ({
+        ...prev,
+        ...mapped.rowErrors,
+      }));
+      setGeneralError(mapped.generalError);
+    },
+  });
+
+  // Escape key handler (diabaikan selama mutation.isPending)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && !mutation.isPending) {
         onClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, mutation.isPending]);
 
   const handleAddItem = () => {
     setItems((prev) => [
       ...prev,
       { key: crypto.randomUUID(), sku: '', qty: '1' },
     ]);
+    if (mutation.isError) mutation.reset();
+    if (generalError) setGeneralError(null);
   };
 
   const handleRemoveItem = (key: string) => {
@@ -47,6 +81,15 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
       delete copy[key];
       return copy;
     });
+    if (mutation.isError) mutation.reset();
+    if (generalError) setGeneralError(null);
+  };
+
+  const handleCustomerChange = (val: string) => {
+    setCustomer(val);
+    if (customerError) setCustomerError(null);
+    if (mutation.isError) mutation.reset();
+    if (generalError) setGeneralError(null);
   };
 
   const handleItemChange = (
@@ -58,90 +101,46 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
       prev.map((item) => (item.key === key ? { ...item, [field]: value } : item)),
     );
 
-    // Clear error on the edited row/field
+    // Hapus error lokal maupun server pada baris yang sedang diedit
     setRowErrors((prev) => {
       const row = prev[key];
-      if (!row || !row[field]) return prev;
+      if (!row) return prev;
       return {
         ...prev,
         [key]: {
           ...row,
           [field]: undefined,
+          server: undefined, // Bersihkan highlight server error begitu user mulai memperbaiki
         },
       };
     });
-  };
 
-  const validateForm = (): boolean => {
-    let isValid = true;
-
-    // 1. Validasi Customer
-    if (!customer.trim()) {
-      setCustomerError('Nama pelanggan wajib diisi');
-      isValid = false;
-    } else {
-      setCustomerError(null);
-    }
-
-    // 2. Validasi Minimal Satu Item
-    if (items.length === 0) {
-      setItemsError('Minimal harus ada 1 item pesanan');
-      return false;
-    }
-    setItemsError(null);
-
-    // 3. Validasi Setiap Baris Item
-    const newRowErrors: Record<string, { sku?: string; qty?: string }> = {};
-    const seenSKUs = new Set<string>();
-
-    for (const item of items) {
-      const normalizedSKU = item.sku.trim().toUpperCase();
-      const skuErr = !normalizedSKU
-        ? 'SKU wajib diisi'
-        : seenSKUs.has(normalizedSKU)
-        ? `SKU '${normalizedSKU}' duplikat`
-        : undefined;
-
-      if (normalizedSKU) {
-        seenSKUs.add(normalizedSKU);
-      }
-
-      const qtyErr = validateQty(item.qty);
-
-      if (skuErr || qtyErr) {
-        newRowErrors[item.key] = {
-          sku: skuErr,
-          qty: qtyErr ?? undefined,
-        };
-        isValid = false;
-      }
-    }
-
-    setRowErrors(newRowErrors);
-    return isValid;
+    if (mutation.isError) mutation.reset();
+    if (generalError) setGeneralError(null);
   };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
 
-    if (!validateForm()) {
+    const validation = validateOrderForm(customer, items);
+    setCustomerError(validation.customerError);
+    setItemsError(validation.itemsError);
+    setRowErrors(validation.rowErrors);
+
+    if (!validation.isValid) {
       return;
     }
 
-    // Kerangka kerja lokal berhasil divalidasi
-    console.log('Valid Order Request:', {
-      customer: customer.trim(),
-      items: items.map((it) => ({
-        sku: it.sku.trim().toUpperCase(),
-        qty: parseInt(it.qty.trim(), 10),
-      })),
-    });
+    setGeneralError(null);
+    mutation.mutate();
   };
 
   return (
     <div
       className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs"
-      onClick={onClose}
+      onClick={() => {
+        if (!mutation.isPending) onClose();
+      }}
     >
       <div
         className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-xl overflow-hidden"
@@ -151,172 +150,273 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              Buat Pesanan Baru
+              {createdOrder ? 'Pesanan Berhasil' : 'Buat Pesanan Baru'}
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Kuantitas stok akan dikurangi secara otomatis dalam transaksi aman.
+              {createdOrder
+                ? 'Transaksi berhasil dicatat dan stok inventaris telah dikurangi.'
+                : 'Kuantitas stok akan dikurangi secara atomik dalam transaksi aman.'}
             </p>
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm cursor-pointer"
+            disabled={mutation.isPending}
+            className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm cursor-pointer disabled:opacity-50"
             aria-label="Tutup"
           >
             ✕
           </button>
         </div>
 
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
-          {/* Input Customer */}
-          <div>
-            <label
-              htmlFor="order-customer"
-              className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
-            >
-              Nama Pelanggan <span className="text-rose-500">*</span>
-            </label>
-            <input
-              id="order-customer"
-              type="text"
-              value={customer}
-              onChange={(e) => {
-                setCustomer(e.target.value);
-                if (customerError) setCustomerError(null);
-              }}
-              placeholder="Contoh: PT Sumber Rejeki / Bpk. Budi"
-              className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
-                customerError
-                  ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
-                  : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
-              }`}
-              autoFocus
-            />
-            {customerError && (
-              <p className="text-xs text-rose-600 mt-1 font-medium">
-                {customerError}
+        {/* Tampilan Sukses Setelah Order Berhasil Dibuat */}
+        {createdOrder ? (
+          <div className="p-6 space-y-5">
+            <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-2">
+              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-xl mx-auto font-bold">
+                ✓
+              </div>
+              <h4 className="text-base font-bold text-emerald-900">
+                Pesanan Berhasil Dibuat!
+              </h4>
+              <p className="text-xs text-emerald-700">
+                Order <span className="font-mono font-bold">#{createdOrder.id}</span> telah tercatat dengan status{' '}
+                <span className="font-bold">{createdOrder.status}</span>.
               </p>
-            )}
-          </div>
+            </div>
 
-          {/* Section Items */}
-          <div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
-                Daftar Barang (Item) <span className="text-rose-500">*</span>
-              </label>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Nomor Pesanan:</span>
+                <span className="font-mono font-bold text-slate-900">#{createdOrder.id}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Pelanggan:</span>
+                <span className="font-medium text-slate-900">{createdOrder.customer}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Jumlah Item:</span>
+                <span className="font-medium text-slate-900">{createdOrder.items.length} item</span>
+              </div>
+              <div className="flex justify-between pt-2 border-t border-slate-200">
+                <span className="font-semibold text-slate-700">Total Pembayaran:</span>
+                <span className="font-bold text-indigo-700 text-base">
+                  {formatRupiah(createdOrder.total)}
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
               <button
                 type="button"
-                onClick={handleAddItem}
-                className="text-xs font-medium text-indigo-600 hover:text-indigo-800 flex items-center gap-1 cursor-pointer transition-colors"
+                onClick={onClose}
+                className="px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm cursor-pointer"
               >
-                <span>+</span> Tambah Baris
+                Selesai
               </button>
             </div>
+          </div>
+        ) : (
+          /* Form Body */
+          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+            {/* Input Customer */}
+            <div>
+              <label
+                htmlFor="order-customer"
+                className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
+              >
+                Nama Pelanggan <span className="text-rose-500">*</span>
+              </label>
+              <input
+                id="order-customer"
+                type="text"
+                disabled={mutation.isPending}
+                value={customer}
+                onChange={(e) => handleCustomerChange(e.target.value)}
+                placeholder="Contoh: PT Sumber Rejeki / Bpk. Budi"
+                className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 transition-colors disabled:bg-slate-100 ${
+                  customerError
+                    ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
+                    : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
+                }`}
+                autoFocus
+              />
+              {customerError && (
+                <p className="text-xs text-rose-600 mt-1 font-medium">
+                  {customerError}
+                </p>
+              )}
+            </div>
 
-            {itemsError && (
-              <p className="text-xs text-rose-600 mb-2 font-medium">
-                {itemsError}
-              </p>
+            {/* Section Items */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider">
+                  Daftar Barang (Item) <span className="text-rose-500">*</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={handleAddItem}
+                  disabled={mutation.isPending}
+                  className="text-xs font-medium text-indigo-600 hover:text-indigo-800 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1 cursor-pointer transition-colors"
+                >
+                  <span>+</span> Tambah Baris
+                </button>
+              </div>
+
+              {itemsError && (
+                <p className="text-xs text-rose-600 mb-2 font-medium">
+                  {itemsError}
+                </p>
+              )}
+
+              <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                {items.map((item, index) => {
+                  const err = rowErrors[item.key];
+                  const hasServerError = Boolean(err?.server);
+
+                  return (
+                    <div
+                      key={item.key}
+                      className={`p-3 rounded-lg border space-y-1.5 transition-colors ${
+                        hasServerError
+                          ? 'bg-rose-50/70 border-rose-300 ring-1 ring-rose-300'
+                          : 'bg-slate-50/70 border-slate-200/80'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-medium text-slate-400 w-5">
+                          #{index + 1}
+                        </span>
+
+                        {/* SKU Input */}
+                        <div className="flex-1">
+                          <input
+                            type="text"
+                            disabled={mutation.isPending}
+                            value={item.sku}
+                            onChange={(e) =>
+                              handleItemChange(
+                                item.key,
+                                'sku',
+                                e.target.value.toUpperCase(),
+                              )
+                            }
+                            placeholder="SKU (e.g. ATK-001)"
+                            className={`w-full px-3 py-1.5 text-xs font-mono uppercase bg-white border rounded-md focus:outline-none focus:ring-2 transition-colors disabled:bg-slate-100 ${
+                              err?.sku || hasServerError
+                                ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
+                                : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
+                            }`}
+                          />
+                        </div>
+
+                        {/* Qty Input */}
+                        <div className="w-24">
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            disabled={mutation.isPending}
+                            value={item.qty}
+                            onChange={(e) =>
+                              handleItemChange(item.key, 'qty', e.target.value)
+                            }
+                            placeholder="Qty"
+                            className={`w-full px-3 py-1.5 text-xs bg-white border rounded-md focus:outline-none focus:ring-2 transition-colors text-center disabled:bg-slate-100 ${
+                              err?.qty
+                                ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
+                                : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
+                            }`}
+                          />
+                        </div>
+
+                        {/* Delete Button */}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveItem(item.key)}
+                          disabled={items.length <= 1 || mutation.isPending}
+                          className="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed p-1.5 rounded transition-colors cursor-pointer"
+                          title="Hapus baris"
+                        >
+                          ✕
+                        </button>
+                      </div>
+
+                      {/* Error Pesan Server (409 Insufficient Stock / 400 Validation) */}
+                      {hasServerError && (
+                        <div className="pl-7 text-xs text-rose-700 font-semibold flex items-center gap-1.5">
+                          <span>⚠️</span>
+                          <span>{err?.server}</span>
+                        </div>
+                      )}
+
+                      {/* Error Validasi Lokal Form */}
+                      {(err?.sku || err?.qty) && !hasServerError && (
+                        <div className="pl-7 text-xs text-rose-600 font-medium space-x-2">
+                          {err.sku && <span>{err.sku}</span>}
+                          {err.sku && err.qty && <span>•</span>}
+                          {err.qty && <span>{err.qty}</span>}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* General Banner Error Message */}
+            {generalError && (
+              <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-2">
+                <span className="font-bold text-sm leading-none mt-0.5">⚠️</span>
+                <div className="flex-1 font-medium">{generalError}</div>
+              </div>
             )}
 
-            <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-              {items.map((item, index) => {
-                const err = rowErrors[item.key];
-
-                return (
-                  <div
-                    key={item.key}
-                    className="p-3 bg-slate-50/70 rounded-lg border border-slate-200/80 space-y-1.5"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-slate-400 w-5">
-                        #{index + 1}
-                      </span>
-
-                      {/* SKU Input */}
-                      <div className="flex-1">
-                        <input
-                          type="text"
-                          value={item.sku}
-                          onChange={(e) =>
-                            handleItemChange(
-                              item.key,
-                              'sku',
-                              e.target.value.toUpperCase(),
-                            )
-                          }
-                          placeholder="SKU (e.g. ATK-001)"
-                          className={`w-full px-3 py-1.5 text-xs font-mono uppercase bg-white border rounded-md focus:outline-none focus:ring-2 transition-colors ${
-                            err?.sku
-                              ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
-                              : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
-                          }`}
-                        />
-                      </div>
-
-                      {/* Qty Input */}
-                      <div className="w-24">
-                        <input
-                          type="text"
-                          inputMode="numeric"
-                          value={item.qty}
-                          onChange={(e) =>
-                            handleItemChange(item.key, 'qty', e.target.value)
-                          }
-                          placeholder="Qty"
-                          className={`w-full px-3 py-1.5 text-xs bg-white border rounded-md focus:outline-none focus:ring-2 transition-colors text-center ${
-                            err?.qty
-                              ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
-                              : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
-                          }`}
-                        />
-                      </div>
-
-                      {/* Delete Button */}
-                      <button
-                        type="button"
-                        onClick={() => handleRemoveItem(item.key)}
-                        disabled={items.length <= 1}
-                        className="text-slate-400 hover:text-rose-600 disabled:opacity-30 disabled:cursor-not-allowed p-1.5 rounded transition-colors cursor-pointer"
-                        title="Hapus baris"
-                      >
-                        ✕
-                      </button>
-                    </div>
-
-                    {/* Inline error feedback for row */}
-                    {(err?.sku || err?.qty) && (
-                      <div className="pl-7 text-xs text-rose-600 font-medium space-x-2">
-                        {err.sku && <span>{err.sku}</span>}
-                        {err.sku && err.qty && <span>•</span>}
-                        {err.qty && <span>{err.qty}</span>}
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            {/* Action Buttons */}
+            <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={mutation.isPending}
+                className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+              >
+                Batal
+              </button>
+              <button
+                type="submit"
+                disabled={mutation.isPending}
+                className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
+              >
+                {mutation.isPending ? (
+                  <>
+                    <svg
+                      className="animate-spin -ml-1 mr-1 h-4 w-4 text-white"
+                      fill="none"
+                      viewBox="0 0 24 24"
+                    >
+                      <circle
+                        className="opacity-25"
+                        cx="12"
+                        cy="12"
+                        r="10"
+                        stroke="currentColor"
+                        strokeWidth="4"
+                      />
+                      <path
+                        className="opacity-75"
+                        fill="currentColor"
+                        d="M4 12a8 8 0 018-8v8H4z"
+                      />
+                    </svg>
+                    Memproses Order...
+                  </>
+                ) : (
+                  'Buat Pesanan'
+                )}
+              </button>
             </div>
-          </div>
-
-          {/* Action Buttons */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
-            <button
-              type="button"
-              onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer"
-            >
-              Batal
-            </button>
-            <button
-              type="submit"
-              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm cursor-pointer"
-            >
-              Buat Pesanan
-            </button>
-          </div>
-        </form>
+          </form>
+        )}
       </div>
     </div>
   );
