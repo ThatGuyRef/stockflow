@@ -66,8 +66,28 @@ func createTestProduct(t *testing.T, h *Handler, price, stock int) (int, string)
 
 	t.Cleanup(func() {
 		cleanCtx := context.Background()
+
+		// 1. Ambil order_id yang berelasi dengan SKU ini
+		var orderIDs []int
+		rows, err := h.Pool.Query(cleanCtx, "SELECT DISTINCT order_id FROM sales_order_items WHERE sku = $1", sku)
+		if err == nil {
+			for rows.Next() {
+				var oid int
+				if err := rows.Scan(&oid); err == nil {
+					orderIDs = append(orderIDs, oid)
+				}
+			}
+			rows.Close()
+		}
+
+		// 2. Hapus order_items dan orders jika ada order yang tercipta
+		if len(orderIDs) > 0 {
+			_, _ = h.Pool.Exec(cleanCtx, "DELETE FROM sales_order_items WHERE order_id = ANY($1)", orderIDs)
+			_, _ = h.Pool.Exec(cleanCtx, "DELETE FROM sales_orders WHERE id = ANY($1)", orderIDs)
+		}
+
+		// 3. Hapus movements dan produk
 		_, _ = h.Pool.Exec(cleanCtx, "DELETE FROM stock_movements WHERE product_id = $1", id)
-		_, _ = h.Pool.Exec(cleanCtx, "DELETE FROM sales_order_items WHERE sku = $1", sku)
 		_, _ = h.Pool.Exec(cleanCtx, "DELETE FROM products WHERE id = $1", id)
 	})
 
@@ -93,8 +113,9 @@ func TestCreateOrder_InsufficientStock_NoMutation(t *testing.T) {
 	_, skuB := createTestProduct(t, h, 20000, 2)
 
 	// 2. Submit order for A qty 5 and B qty 3 (B has only 2 available)
+	customer := fmt.Sprintf("Insufficient %s", skuB)
 	orderReq := CreateOrderRequest{
-		Customer: "PT Insufficient Stock Test",
+		Customer: customer,
 		Items: []OrderItemInput{
 			{SKU: skuA, Qty: intPtr(5)},
 			{SKU: skuB, Qty: intPtr(3)},
@@ -182,6 +203,16 @@ func TestCreateOrder_InsufficientStock_NoMutation(t *testing.T) {
 	}
 	if orderItemCount != 0 {
 		t.Errorf("expected 0 sales order items for both products, got %d", orderItemCount)
+	}
+
+	// 7. Directly verify database state: 0 sales orders recorded for this customer
+	var orderCount int
+	err = h.Pool.QueryRow(ctx, "SELECT COUNT(*) FROM sales_orders WHERE customer = $1", customer).Scan(&orderCount)
+	if err != nil {
+		t.Fatalf("failed to query sales orders: %v", err)
+	}
+	if orderCount != 0 {
+		t.Errorf("expected 0 sales orders for customer %q, got %d", customer, orderCount)
 	}
 }
 
