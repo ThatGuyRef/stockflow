@@ -40,6 +40,7 @@ func main() {
 
 	productHandler := &api.Handler{Pool: pool}
 	mux.HandleFunc("GET /api/products", productHandler.ListProducts)
+	mux.HandleFunc("GET /api/products/summary", productHandler.GetProductSummary)
 	mux.HandleFunc("POST /api/products", productHandler.CreateProduct)
 	mux.HandleFunc("PUT /api/products/{id}", productHandler.UpdateProduct)
 	mux.HandleFunc("DELETE /api/products/{id}", productHandler.DeleteProduct)

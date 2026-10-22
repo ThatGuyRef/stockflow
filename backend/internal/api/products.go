@@ -372,3 +372,37 @@ func (h *Handler) DeleteProduct(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusNoContent)
 }
+
+type ProductSummary struct {
+	TotalProducts   int   `json:"total_products"`
+	ActiveProducts  int   `json:"active_products"`
+	TotalStockValue int64 `json:"total_stock_value"`
+	LowStockCount   int   `json:"low_stock_count"`
+}
+
+func (h *Handler) GetProductSummary(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	var summary ProductSummary
+	query := `
+		SELECT
+			COUNT(*) AS total_products,
+			COUNT(*) FILTER (WHERE is_active) AS active_products,
+			COALESCE(SUM(price::bigint * stock), 0) AS total_stock_value,
+			COUNT(*) FILTER (WHERE is_active AND stock <= $1) AS low_stock_count
+		FROM products
+	`
+	err := h.Pool.QueryRow(ctx, query, LowStockThreshold).Scan(
+		&summary.TotalProducts,
+		&summary.ActiveProducts,
+		&summary.TotalStockValue,
+		&summary.LowStockCount,
+	)
+	if err != nil {
+		log.Printf("error getting product summary: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to get product summary", nil)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, summary)
+}

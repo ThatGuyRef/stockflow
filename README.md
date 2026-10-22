@@ -78,6 +78,11 @@ A robust, concurrency-safe inventory and order management API built with **Go** 
 - To prevent this, incoming order items are sorted lexicographically by SKU before acquiring row locks via `UPDATE products ... WHERE sku = $2 AND stock >= $1`.
 - **Note on Response Ordering**: As a direct consequence of this deterministic locking sequence, order items are processed, persisted, and returned in ascending SKU order, rather than the arbitrary order submitted by the client.
 
+### 10. Valuation Includes Inactive Inventory; Low Stock Focuses on Active
+- `total_stock_value` accounts for both active and inactive inventory (`SUM(price::bigint * stock)`). Even if a product is discontinued from active sales (`is_active = false`), physical units remain stored in warehouse inventory and represent capitalized assets.
+- In contrast, `low_stock_count` strictly filters for `is_active = true` (`COUNT(*) FILTER (WHERE is_active AND stock <= 10)`), aligning with the `GET /api/products?status=low_stock` catalog filter so procurement alerts are not triggered for discontinued items with 0 stock.
+- The aggregation query explicitly casts `price::bigint` before multiplying with `stock` to prevent 32-bit integer arithmetic overflow when inventory valuations exceed 2.1 billion.
+
 ---
 
 ## 🗄️ Database Schema & Seed Strategy
@@ -144,6 +149,21 @@ Retrieves a paginated list of products with optional search and status filtering
   "page": 1,
   "limit": 10,
   "total": 16
+}
+```
+
+---
+
+#### `GET /api/products/summary`
+Retrieves aggregate product and stock metrics across the inventory catalog in a single efficient query.
+
+**Response (200 OK):**
+```json
+{
+  "total_products": 16,
+  "active_products": 14,
+  "total_stock_value": 9316500,
+  "low_stock_count": 5
 }
 ```
 
