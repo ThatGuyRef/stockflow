@@ -1,13 +1,40 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import type { Product } from './api/types';
 import { AdjustStockModal } from './components/AdjustStockModal';
 import { CreateOrderModal } from './components/CreateOrderModal';
+import { OrderDetail } from './components/OrderDetail';
 import { ProductTable } from './components/ProductTable';
 import { SummaryCards } from './components/SummaryCards';
 
 export function App() {
   const [adjusting, setAdjusting] = useState<Product | null>(null);
   const [isCreatingOrder, setIsCreatingOrder] = useState(false);
+  const [viewingOrderId, setViewingOrderId] = useState<number | null>(null);
+
+  const [orderSearch, setOrderSearch] = useState('');
+  const [orderSearchError, setOrderSearchError] = useState<string | null>(null);
+
+  const handleOpenOrder = (e: FormEvent) => {
+    e.preventDefault();
+    const trimmed = orderSearch.trim();
+    if (!trimmed) {
+      setOrderSearchError('ID wajib diisi');
+      return;
+    }
+    if (!/^\d+$/.test(trimmed)) {
+      setOrderSearchError('ID harus bilangan bulat');
+      return;
+    }
+    const id = parseInt(trimmed, 10);
+    if (id <= 0) {
+      setOrderSearchError('ID harus > 0');
+      return;
+    }
+
+    setOrderSearchError(null);
+    setViewingOrderId(id);
+    setOrderSearch('');
+  };
 
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
@@ -25,6 +52,38 @@ export function App() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* Input Buka Order # */}
+            <form onSubmit={handleOpenOrder} className="flex items-center gap-1.5 relative">
+              <div className="relative">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="Buka order #..."
+                  value={orderSearch}
+                  onChange={(e) => {
+                    setOrderSearch(e.target.value);
+                    if (orderSearchError) setOrderSearchError(null);
+                  }}
+                  className={`w-36 sm:w-44 px-3 py-1.5 text-xs bg-slate-50 border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+                    orderSearchError
+                      ? 'border-rose-400 focus:ring-rose-500/20'
+                      : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
+                  }`}
+                />
+                {orderSearchError && (
+                  <span className="absolute -bottom-4.5 left-0 text-[10px] text-rose-600 font-medium whitespace-nowrap">
+                    {orderSearchError}
+                  </span>
+                )}
+              </div>
+              <button
+                type="submit"
+                className="px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 hover:text-slate-900 rounded-lg shadow-2xs transition-colors cursor-pointer"
+              >
+                Buka
+              </button>
+            </form>
+
             <button
               type="button"
               onClick={() => setIsCreatingOrder(true)}
@@ -57,6 +116,14 @@ export function App() {
       {isCreatingOrder && (
         <CreateOrderModal
           onClose={() => setIsCreatingOrder(false)}
+        />
+      )}
+
+      {/* Modal Detail Order */}
+      {viewingOrderId !== null && (
+        <OrderDetail
+          orderId={viewingOrderId}
+          onClose={() => setViewingOrderId(null)}
         />
       )}
     </div>

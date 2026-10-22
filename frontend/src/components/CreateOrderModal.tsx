@@ -2,13 +2,13 @@ import { useEffect, useState, type FormEvent } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createOrder } from '../api/client';
 import type { Order } from '../api/types';
-import { formatRupiah } from '../lib/format';
 import {
   mapOrderError,
   validateOrderForm,
   type OrderItemRow,
   type RowError,
 } from '../lib/validation';
+import { OrderDetail } from './OrderDetail';
 
 interface CreateOrderModalProps {
   onClose: () => void;
@@ -135,6 +135,10 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
     mutation.mutate();
   };
 
+  if (createdOrder) {
+    return <OrderDetail orderId={createdOrder.id} onClose={onClose} />;
+  }
+
   return (
     <div
       className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs"
@@ -150,12 +154,10 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
         <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
           <div>
             <h3 className="text-base font-semibold text-slate-900">
-              {createdOrder ? 'Pesanan Berhasil' : 'Buat Pesanan Baru'}
+              Buat Pesanan Baru
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              {createdOrder
-                ? 'Transaksi berhasil dicatat dan stok inventaris telah dikurangi.'
-                : 'Kuantitas stok akan dikurangi secara atomik dalam transaksi aman.'}
+              Kuantitas stok akan dikurangi secara atomik dalam transaksi aman.
             </p>
           </div>
           <button
@@ -169,56 +171,8 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
           </button>
         </div>
 
-        {/* Tampilan Sukses Setelah Order Berhasil Dibuat */}
-        {createdOrder ? (
-          <div className="p-6 space-y-5">
-            <div className="p-5 bg-emerald-50 border border-emerald-200 rounded-xl text-center space-y-2">
-              <div className="w-12 h-12 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center text-xl mx-auto font-bold">
-                ✓
-              </div>
-              <h4 className="text-base font-bold text-emerald-900">
-                Pesanan Berhasil Dibuat!
-              </h4>
-              <p className="text-xs text-emerald-700">
-                Order <span className="font-mono font-bold">#{createdOrder.id}</span> telah tercatat dengan status{' '}
-                <span className="font-bold">{createdOrder.status}</span>.
-              </p>
-            </div>
-
-            <div className="bg-slate-50 border border-slate-200 rounded-lg p-4 space-y-2 text-sm">
-              <div className="flex justify-between">
-                <span className="text-slate-500">Nomor Pesanan:</span>
-                <span className="font-mono font-bold text-slate-900">#{createdOrder.id}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Pelanggan:</span>
-                <span className="font-medium text-slate-900">{createdOrder.customer}</span>
-              </div>
-              <div className="flex justify-between">
-                <span className="text-slate-500">Jumlah Item:</span>
-                <span className="font-medium text-slate-900">{createdOrder.items.length} item</span>
-              </div>
-              <div className="flex justify-between pt-2 border-t border-slate-200">
-                <span className="font-semibold text-slate-700">Total Pembayaran:</span>
-                <span className="font-bold text-indigo-700 text-base">
-                  {formatRupiah(createdOrder.total)}
-                </span>
-              </div>
-            </div>
-
-            <div className="pt-2 flex justify-end">
-              <button
-                type="button"
-                onClick={onClose}
-                className="px-5 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-colors shadow-sm cursor-pointer"
-              >
-                Selesai
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Form Body */
-          <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        {/* Form Body */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-5">
             {/* Input Customer */}
             <div>
               <label
@@ -416,8 +370,7 @@ export function CreateOrderModal({ onClose }: CreateOrderModalProps) {
               </button>
             </div>
           </form>
-        )}
+        </div>
       </div>
-    </div>
-  );
+    );
 }
