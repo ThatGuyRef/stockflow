@@ -387,3 +387,125 @@ func (h *Handler) GetOrder(w http.ResponseWriter, r *http.Request) {
 
 	httpx.WriteJSON(w, http.StatusOK, order)
 }
+
+func (h *Handler) CancelOrder(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	// 1. Parse id, begin transaction, defer rollback
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeValidation, "invalid order id", nil)
+		return
+	}
+
+	tx, err := h.Pool.Begin(ctx)
+	if err != nil {
+		log.Printf("error starting cancel order transaction: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to start transaction", nil)
+		return
+	}
+	defer tx.Rollback(ctx)
+
+	// 2. Atomically update status to CANCELLED if it is currently CREATED
+	tag, err := tx.Exec(ctx, `
+		UPDATE sales_orders
+		SET status = 'CANCELLED', cancelled_at = NOW()
+		WHERE id = $1 AND status = 'CREATED'
+	`, id)
+	if err != nil {
+		log.Printf("error cancelling sales order %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to cancel order", nil)
+		return
+	}
+
+	if tag.RowsAffected() == 0 {
+		var exists bool
+		checkErr := tx.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM sales_orders WHERE id = $1)", id).Scan(&exists)
+		if checkErr != nil {
+			log.Printf("error checking order existence %d: %v", id, checkErr)
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to check order status", nil)
+			return
+		}
+		if !exists {
+			httpx.WriteError(w, http.StatusNotFound, httpx.CodeNotFound, "order not found", nil)
+			return
+		}
+		httpx.WriteError(w, http.StatusConflict, httpx.CodeAlreadyCancelled, "order is already cancelled", nil)
+		return
+	}
+
+	// 3. Fetch items to return stock
+	rows, err := tx.Query(ctx, `
+		SELECT p.id, i.qty
+		FROM sales_order_items i
+		JOIN products p ON p.sku = i.sku
+		WHERE i.order_id = $1
+		ORDER BY i.sku
+	`, id)
+	if err != nil {
+		log.Printf("error fetching order items for cancellation %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to fetch order items", nil)
+		return
+	}
+
+	type returnItem struct {
+		productID int
+		qty       int
+	}
+	var returnItems []returnItem
+	for rows.Next() {
+		var it returnItem
+		if err := rows.Scan(&it.productID, &it.qty); err != nil {
+			rows.Close()
+			log.Printf("error scanning order item for cancellation %d: %v", id, err)
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to read order items", nil)
+			return
+		}
+		returnItems = append(returnItems, it)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		log.Printf("error iterating order items for cancellation %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to read order items", nil)
+		return
+	}
+	rows.Close()
+
+	// 4. Return stock and record 'in' movement for each item
+	note := fmt.Sprintf("Cancellation Order #%d", id)
+	for _, it := range returnItems {
+		_, err := tx.Exec(ctx, "UPDATE products SET stock = stock + $1 WHERE id = $2", it.qty, it.productID)
+		if err != nil {
+			log.Printf("error returning stock for product %d: %v", it.productID, err)
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to return stock", nil)
+			return
+		}
+
+		_, err = tx.Exec(ctx, `
+			INSERT INTO stock_movements (product_id, type, qty, note)
+			VALUES ($1, 'in', $2, $3)
+		`, it.productID, it.qty, note)
+		if err != nil {
+			log.Printf("error recording stock return movement for product %d: %v", it.productID, err)
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to record stock movement", nil)
+			return
+		}
+	}
+
+	// 5. Load full updated order representation using the same transaction
+	order, err := loadOrder(ctx, tx, id)
+	if err != nil {
+		log.Printf("error loading cancelled order %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to load updated order", nil)
+		return
+	}
+
+	// 6. Commit transaction and return 200 OK
+	if err := tx.Commit(ctx); err != nil {
+		log.Printf("error committing cancellation transaction %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to commit cancellation", nil)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, order)
+}

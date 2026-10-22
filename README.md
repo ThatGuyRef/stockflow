@@ -281,6 +281,24 @@ Retrieves a specific sales order and all its items by ID.
 
 ---
 
+#### `POST /api/orders/{id}/cancel`
+Cancels an active order (`CREATED`), restores item quantities back to product stock, and logs auditable `'in'` return movements within an atomic transaction.
+
+**Key Behaviors:**
+- Atomically checks and updates order status with `UPDATE sales_orders SET status = 'CANCELLED', cancelled_at = NOW() WHERE id = $1 AND status = 'CREATED'`.
+- If no row was affected, verifies existence to accurately return `404 Not Found` if the order ID doesn't exist, or `409 Conflict` (`ALREADY_CANCELLED`) if it was already cancelled.
+- Fetches ordered items sorted by SKU (`ORDER BY i.sku`) to prevent lock inversions during stock restitution.
+- Restores product stock (`stock = stock + qty`) and records `'in'` movements with note `"Cancellation Order #{order_id}"`.
+- Uses the active transaction to reload the updated order via `loadOrder` before committing.
+
+**Responses:**
+- `200 OK`: Returns the updated order with status `"CANCELLED"` and populated `cancelled_at`.
+- `400 Bad Request`: `VALIDATION_ERROR` (invalid order ID format).
+- `404 Not Found`: `NOT_FOUND` (order ID does not exist).
+- `409 Conflict`: `ALREADY_CANCELLED` (order was already previously cancelled).
+
+---
+
 ## 🚨 Error Handling & Response Envelope
 
 All error responses strictly adhere to a unified error envelope format:
