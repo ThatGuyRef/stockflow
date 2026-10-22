@@ -157,7 +157,10 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
                     : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span>📥</span> Stock In (Add)
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                </svg>
+                Stock In (Add)
               </button>
               <button
                 type="button"
@@ -168,7 +171,10 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
                     : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
                 }`}
               >
-                <span>📤</span> Stock Out (Deduct)
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                </svg>
+                Stock Out (Deduct)
               </button>
             </div>
           </div>
@@ -223,7 +229,9 @@ export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
           {/* Backend Error Message Box */}
           {apiErrorMessage && (
             <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-2">
-              <span className="font-bold text-sm leading-none mt-0.5">⚠️</span>
+              <svg className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
               <div className="flex-1 font-medium">{apiErrorMessage}</div>
             </div>
           )}
