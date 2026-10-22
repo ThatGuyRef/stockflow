@@ -144,10 +144,7 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 		skus[i] = it.SKU
 	}
 
-	type productMeta struct {
-		isActive bool
-	}
-	productMap := make(map[string]productMeta, len(skus))
+	productIsActive := make(map[string]bool, len(skus))
 
 	rows, err := tx.Query(ctx, "SELECT sku, is_active FROM products WHERE sku = ANY($1)", skus)
 	if err != nil {
@@ -167,20 +164,21 @@ func (h *Handler) CreateOrder(w http.ResponseWriter, r *http.Request) {
 			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to check product skus", nil)
 			return
 		}
-		productMap[s] = productMeta{isActive: isActive}
+		productIsActive[s] = isActive
 	}
 	if err := rows.Err(); err != nil {
 		log.Printf("error iterating product skus: %v", err)
 		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to check product skus", nil)
 		return
 	}
+	rows.Close()
 
 	var preCheckDetails []string
 	for _, it := range items {
-		meta, found := productMap[it.SKU]
+		isActive, found := productIsActive[it.SKU]
 		if !found {
 			preCheckDetails = append(preCheckDetails, fmt.Sprintf("unknown sku '%s'", it.SKU))
-		} else if !meta.isActive {
+		} else if !isActive {
 			preCheckDetails = append(preCheckDetails, fmt.Sprintf("sku '%s' is inactive", it.SKU))
 		}
 	}

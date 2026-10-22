@@ -73,6 +73,11 @@ A robust, concurrency-safe inventory and order management API built with **Go** 
 - Quantities are strictly capped at `1,000,000` to prevent PostgreSQL integer arithmetic overflow (`22003`) on large increments.
 - Responses return `{"product": ..., "movement": ...}` so clients can immediately update both table rows and ledger timelines without secondary fetch requests.
 
+### 9. Deadlock Prevention & Deterministic Item Ordering in Orders
+- Concurrent orders locking multiple rows in opposing order (e.g., Order A locks `ATK-001` then waits for `ATK-003`, while Order B locks `ATK-003` then waits for `ATK-001`) create database deadlocks.
+- To prevent this, incoming order items are sorted lexicographically by SKU before acquiring row locks via `UPDATE products ... WHERE sku = $2 AND stock >= $1`.
+- **Note on Response Ordering**: As a direct consequence of this deterministic locking sequence, order items are processed, persisted, and returned in ascending SKU order, rather than the arbitrary order submitted by the client.
+
 ---
 
 ## 🗄️ Database Schema & Seed Strategy
@@ -226,6 +231,43 @@ Retrieves the audit trail of all stock movements for a specific product, ordered
 - `200 OK`: Returns `{"data": [...]}` containing the list of movements. If the product exists but has no movements, returns `{"data": []}`.
 - `400 Bad Request`: Invalid product ID.
 - `404 Not Found`: Product ID does not exist.
+
+---
+
+### 3. Orders
+
+#### `POST /api/orders`
+Creates a new sales order, atomically reducing product stocks, recording order items, and creating `'out'` stock movements within a single ACID transaction.
+
+**Request Body:**
+```json
+{
+  "customer": "PT Sinar Baru",
+  "items": [
+    {
+      "sku": "ATK-001",
+      "qty": 2
+    },
+    {
+      "sku": "ATK-003",
+      "qty": 1
+    }
+  ]
+}
+```
+
+**Key Behaviors:**
+- Validates that `customer` is not empty, `items` is not empty, and all `sku`s are non-empty and non-duplicated (after uppercase normalization).
+- Pre-checks that all requested SKUs exist and are active (`is_active = true`) before acquiring any row locks.
+- Sorts items by SKU to prevent database deadlocks under concurrent ordering.
+- Deducts stock with guarded `UPDATE products ... WHERE sku = $2 AND stock >= $1`. If stock is insufficient, triggers an immediate rollback and returns `409 Conflict` with current available stock.
+- Calculates order total in 64-bit integer, rejecting totals exceeding `math.MaxInt32` (`2147483647`).
+- Appends `stock_movements` with type `'out'` and note `"Order #{order_id}"` for each item.
+
+**Responses:**
+- `201 Created`: Returns the newly created `Order` object including its sorted `items`.
+- `400 Bad Request`: `VALIDATION_ERROR` (empty customer/items, duplicate/unknown/inactive SKUs, non-positive or excessive quantities, total overflow).
+- `409 Conflict`: `INSUFFICIENT_STOCK` with `sku` and `available` if any product lacks required stock. Full rollback guarantees no partial deductions.
 
 ---
 
