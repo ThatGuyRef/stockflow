@@ -386,6 +386,37 @@ Server starts on port `8080`:
 Server is listening on :8080...
 ```
 
+### 3. Run Frontend Development Server
+```bash
+cd frontend
+npm install
+npm run dev
+```
+Client starts on `http://localhost:5173` with Vite proxy automatically forwarding `/api` requests to backend at `http://localhost:8080`.
+
+To run frontend test suite and production build:
+```bash
+cd frontend
+npx vitest run   # Run Vitest test suite
+npm run lint     # Run ESLint check
+npm run build    # TypeScript type-check and Vite build
+```
+
+---
+
+## 💻 Frontend Architecture & Features
+
+- **Framework & Libraries**: React 19, Vite, TypeScript, TanStack React Query v5, Tailwind CSS v4.
+- **Unified API Client (`src/api/client.ts`)**: Strictly typed contracts matching backend schema, standardized error parsing with `ApiError` and `isApiErrorEnvelope` type guards.
+- **Form Validation & Server Error Mapping (`src/lib/validation.ts`)**:
+  - Pure functions `validateOrderForm` and `validateQty` validating inputs before mutation.
+  - `mapOrderError`: Case-insensitive normalization (`toUpperCase().trim()`) that correlates backend errors (409 `INSUFFICIENT_STOCK` with `available`, 400 `unknown sku`, 400 `inactive sku`, and `items[N]`) directly to the offending row, applying inline rose highlights and warning messages.
+- **Stock Adjustment Modal (`src/components/AdjustStockModal.tsx`)**: Modal supporting stock in/out adjustments with real-time integer validation, locking submit buttons during pending requests, and reactive cache invalidation of `['products']` and `['summary']`.
+- **Order Lifecycle & Details (`src/components/OrderDetail.tsx`)**:
+  - Live query `['order', id]` displaying customer, creation timestamp, status badges (`CREATED` / `CANCELLED`), and items breakdown with `Intl.NumberFormat('id-ID')` Rupiah currency.
+  - Inline order cancellation with confirmation prompt and optimistic/server query state synchronization (`setQueryData`), automatically triggering reactive stock replenishment on the product table without manual page reloads.
+- **Quick Order Lookup**: Header navbar input with integer validation (`> 0`) enabling instant lookup and inspection of any order by ID.
+
 ---
 
 ## 🧪 Verification & curl Examples
