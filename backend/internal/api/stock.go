@@ -187,3 +187,69 @@ func (h *Handler) AdjustStock(w http.ResponseWriter, r *http.Request) {
 		"movement": m,
 	})
 }
+
+func (h *Handler) ListMovements(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		httpx.WriteError(w, http.StatusBadRequest, httpx.CodeValidation, "invalid product id", nil)
+		return
+	}
+
+	// Verify product exists
+	var exists bool
+	err = h.Pool.QueryRow(ctx, "SELECT EXISTS(SELECT 1 FROM products WHERE id = $1)", id).Scan(&exists)
+	if err != nil {
+		log.Printf("error checking product existence: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to check product", nil)
+		return
+	}
+	if !exists {
+		httpx.WriteError(w, http.StatusNotFound, httpx.CodeNotFound, "product not found", nil)
+		return
+	}
+
+	query := `
+		SELECT id, product_id, type, qty, note, created_at
+		FROM stock_movements
+		WHERE product_id = $1
+		ORDER BY created_at DESC, id DESC
+	`
+
+	rows, err := h.Pool.Query(ctx, query, id)
+	if err != nil {
+		log.Printf("error querying movements for product %d: %v", id, err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to query stock movements", nil)
+		return
+	}
+	defer rows.Close()
+
+	movements := make([]StockMovement, 0)
+	for rows.Next() {
+		var m StockMovement
+		if err := rows.Scan(
+			&m.ID,
+			&m.ProductID,
+			&m.Type,
+			&m.Qty,
+			&m.Note,
+			&m.CreatedAt,
+		); err != nil {
+			log.Printf("error scanning stock movement: %v", err)
+			httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to read stock movement", nil)
+			return
+		}
+		movements = append(movements, m)
+	}
+
+	if err := rows.Err(); err != nil {
+		log.Printf("error iterating stock movements: %v", err)
+		httpx.WriteError(w, http.StatusInternalServerError, httpx.CodeInternal, "failed to read stock movements", nil)
+		return
+	}
+
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
+		"data": movements,
+	})
+}
