@@ -44,6 +44,8 @@ func main() {
 	mux.HandleFunc("PUT /api/products/{id}", productHandler.UpdateProduct)
 	mux.HandleFunc("DELETE /api/products/{id}", productHandler.DeleteProduct)
 	mux.HandleFunc("POST /api/products/{id}/stock", productHandler.AdjustStock)
+	mux.HandleFunc("GET /api/products/{id}/movements", productHandler.ListMovements)
+	mux.HandleFunc("POST /api/orders", productHandler.CreateOrder)
 
 	// 5. Run the HTTP server on port :8080
 	log.Println("Server is listening on :8080...")
