@@ -1,6 +1,11 @@
+import { useState } from 'react';
+import type { Product } from './api/types';
+import { AdjustStockModal } from './components/AdjustStockModal';
 import { ProductTable } from './components/ProductTable';
 
 export function App() {
+  const [adjusting, setAdjusting] = useState<Product | null>(null);
+
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       {/* Top Navbar */}
@@ -20,8 +25,16 @@ export function App() {
 
       {/* Main Content Area */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <ProductTable />
+        <ProductTable onAdjust={setAdjusting} />
       </main>
+
+      {/* Adjust Stock Modal */}
+      {adjusting && (
+        <AdjustStockModal
+          product={adjusting}
+          onClose={() => setAdjusting(null)}
+        />
+      )}
     </div>
   );
 }

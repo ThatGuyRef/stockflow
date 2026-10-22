@@ -1,0 +1,254 @@
+import { useEffect, useState, type FormEvent } from 'react';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { adjustStock, ApiError } from '../api/client';
+import type { MovementType, Product } from '../api/types';
+import { validateQty } from '../lib/validation';
+
+interface AdjustStockModalProps {
+  product: Product;
+  onClose: () => void;
+}
+
+export function AdjustStockModal({ product, onClose }: AdjustStockModalProps) {
+  const queryClient = useQueryClient();
+
+  const [type, setType] = useState<MovementType>('in');
+  const [qty, setQty] = useState('');
+  const [note, setNote] = useState('');
+  const [validationError, setValidationError] = useState<string | null>(null);
+
+  // Menutup modal dengan tombol Esc
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
+
+  const mutation = useMutation({
+    mutationFn: () => {
+      return adjustStock(product.id, {
+        type,
+        qty: parseInt(qty.trim(), 10),
+        note: note.trim() || null,
+      });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['products'] });
+      queryClient.invalidateQueries({ queryKey: ['summary'] });
+      onClose();
+    },
+  });
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+
+    const err = validateQty(qty);
+    if (err) {
+      setValidationError(err);
+      return;
+    }
+
+    setValidationError(null);
+    mutation.mutate();
+  };
+
+  // Format pesan error API
+  let apiErrorMessage: string | null = null;
+  if (mutation.error) {
+    if (mutation.error instanceof ApiError) {
+      if (mutation.error.code === 'INSUFFICIENT_STOCK') {
+        const available = mutation.error.available ?? 0;
+        apiErrorMessage = `Stok tidak mencukupi untuk pengurangan ini (tersedia ${available}).`;
+      } else {
+        const details = mutation.error.details?.length
+          ? `: ${mutation.error.details.join(', ')}`
+          : '';
+        apiErrorMessage = `${mutation.error.message}${details}`;
+      }
+    } else if (mutation.error instanceof Error) {
+      apiErrorMessage = mutation.error.message;
+    } else {
+      apiErrorMessage = 'Terjadi kesalahan sistem saat menyesuaikan stok.';
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 backdrop-blur-xs"
+      onClick={onClose}
+    >
+      <div
+        className="bg-white rounded-xl shadow-xl border border-slate-200 w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Modal Header */}
+        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+          <div>
+            <h3 className="text-base font-semibold text-slate-900">
+              Sesuaikan Stok Produk
+            </h3>
+            <p className="text-xs text-slate-500 font-mono mt-0.5">
+              {product.sku} — {product.name}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-slate-400 hover:text-slate-600 rounded-lg p-1 transition-colors text-sm"
+            aria-label="Tutup"
+          >
+            ✕
+          </button>
+        </div>
+
+        {/* Modal Body Form */}
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {/* Info Stok Saat Ini */}
+          <div className="bg-slate-50 rounded-lg p-3 border border-slate-200 flex items-center justify-between text-sm">
+            <span className="text-slate-600">Stok Saat Ini:</span>
+            <span className="font-bold text-slate-900">
+              {product.stock} unit
+            </span>
+          </div>
+
+          {/* Tipe Penyesuaian: In / Out */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-2">
+              Jenis Mutasi
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setType('in')}
+                className={`py-2 px-3 text-sm font-medium rounded-lg border flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                  type === 'in'
+                    ? 'bg-emerald-50 border-emerald-500 text-emerald-800 ring-2 ring-emerald-500/20'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span>📥</span> Stok Masuk (In)
+              </button>
+              <button
+                type="button"
+                onClick={() => setType('out')}
+                className={`py-2 px-3 text-sm font-medium rounded-lg border flex items-center justify-center gap-2 transition-colors cursor-pointer ${
+                  type === 'out'
+                    ? 'bg-rose-50 border-rose-500 text-rose-800 ring-2 ring-rose-500/20'
+                    : 'bg-white border-slate-200 text-slate-700 hover:bg-slate-50'
+                }`}
+              >
+                <span>📤</span> Stok Keluar (Out)
+              </button>
+            </div>
+          </div>
+
+          {/* Input Qty */}
+          <div>
+            <label
+              htmlFor="adjust-qty"
+              className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
+            >
+              Jumlah (Qty) <span className="text-rose-500">*</span>
+            </label>
+            <input
+              id="adjust-qty"
+              type="text"
+              inputMode="numeric"
+              value={qty}
+              onChange={(e) => {
+                setQty(e.target.value);
+                if (validationError) setValidationError(null);
+              }}
+              placeholder="Contoh: 5"
+              className={`w-full px-3.5 py-2 text-sm bg-white border rounded-lg focus:outline-none focus:ring-2 transition-colors ${
+                validationError
+                  ? 'border-rose-400 focus:ring-rose-500/20 focus:border-rose-500'
+                  : 'border-slate-300 focus:ring-indigo-500/20 focus:border-indigo-500'
+              }`}
+              autoFocus
+            />
+            {validationError && (
+              <p className="text-xs text-rose-600 mt-1.5 font-medium">
+                {validationError}
+              </p>
+            )}
+          </div>
+
+          {/* Input Catatan (Optional) */}
+          <div>
+            <label
+              htmlFor="adjust-note"
+              className="block text-xs font-semibold text-slate-700 uppercase tracking-wider mb-1.5"
+            >
+              Catatan <span className="text-slate-400 text-xs font-normal">(opsional)</span>
+            </label>
+            <textarea
+              id="adjust-note"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Contoh: Restock dari supplier / pemakaian divisi"
+              rows={2}
+              className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-colors resize-none"
+            />
+          </div>
+
+          {/* Error Message Box dari Backend */}
+          {apiErrorMessage && (
+            <div className="p-3 bg-rose-50 border border-rose-200 rounded-lg text-xs text-rose-700 flex items-start gap-2">
+              <span className="font-bold text-sm leading-none mt-0.5">⚠️</span>
+              <div className="flex-1 font-medium">{apiErrorMessage}</div>
+            </div>
+          )}
+
+          {/* Modal Actions */}
+          <div className="pt-2 flex items-center justify-end gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={mutation.isPending}
+              className="px-4 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+            >
+              Batal
+            </button>
+            <button
+              type="submit"
+              disabled={mutation.isPending}
+              className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-lg transition-colors shadow-sm flex items-center gap-2 cursor-pointer"
+            >
+              {mutation.isPending ? (
+                <>
+                  <svg
+                    className="animate-spin -ml-1 mr-1 h-4 w-4 text-white"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                  >
+                    <circle
+                      className="opacity-25"
+                      cx="12"
+                      cy="12"
+                      r="10"
+                      stroke="currentColor"
+                      strokeWidth="4"
+                    />
+                    <path
+                      className="opacity-75"
+                      fill="currentColor"
+                      d="M4 12a8 8 0 018-8v8H4z"
+                    />
+                  </svg>
+                  Menyimpan...
+                </>
+              ) : (
+                'Simpan'
+              )}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}

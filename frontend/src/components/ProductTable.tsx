@@ -1,11 +1,15 @@
 import { useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { ApiError, listProducts } from '../api/client';
-import type { ProductStatusFilter } from '../api/types';
+import type { Product, ProductStatusFilter } from '../api/types';
 import { useDebounce } from '../hooks/useDebounce';
 import { formatRupiah, timeAgo } from '../lib/format';
 
-export function ProductTable() {
+interface ProductTableProps {
+  onAdjust?: (product: Product) => void;
+}
+
+export function ProductTable({ onAdjust }: ProductTableProps) {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<ProductStatusFilter>('all');
   const [page, setPage] = useState(1);
@@ -140,6 +144,7 @@ export function ProductTable() {
                 <th className="px-5 py-3 text-center">Stok</th>
                 <th className="px-5 py-3 text-center">Status</th>
                 <th className="px-5 py-3">Mutasi Terakhir</th>
+                <th className="px-5 py-3 text-right">Aksi</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -151,6 +156,7 @@ export function ProductTable() {
                   <td className="px-5 py-4 text-center"><div className="h-4 bg-slate-200 rounded w-12 mx-auto"></div></td>
                   <td className="px-5 py-4 text-center"><div className="h-5 bg-slate-200 rounded-full w-16 mx-auto"></div></td>
                   <td className="px-5 py-4"><div className="h-4 bg-slate-200 rounded w-24"></div></td>
+                  <td className="px-5 py-4 text-right"><div className="h-6 bg-slate-200 rounded w-16 ml-auto"></div></td>
                 </tr>
               ))}
             </tbody>
@@ -197,6 +203,7 @@ export function ProductTable() {
                   <th className="px-5 py-3 text-center">Stok</th>
                   <th className="px-5 py-3 text-center">Status</th>
                   <th className="px-5 py-3">Mutasi Terakhir</th>
+                  <th className="px-5 py-3 text-right">Aksi</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -246,6 +253,15 @@ export function ProductTable() {
                       </td>
                       <td className="px-5 py-3.5 text-slate-500 whitespace-nowrap text-xs">
                         {timeAgo(product.last_movement_at)}
+                      </td>
+                      <td className="px-5 py-3.5 text-right whitespace-nowrap">
+                        <button
+                          type="button"
+                          onClick={() => onAdjust?.(product)}
+                          className="px-2.5 py-1 text-xs font-medium text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-md transition-colors cursor-pointer"
+                        >
+                          Adjust
+                        </button>
                       </td>
                     </tr>
                   );
